@@ -16,8 +16,11 @@ What it does:
 - Selected cells are grouped by **4-connectivity** (cells that share an edge).
   Group numbers stay stable when you edit other groups. Each group shows
   cells, area, size, holes touched and distance from the dock.
-- **Path preview**: straight lawnmower passes per group along its long axis,
-  with a route from the dock and back, plus length and time estimates.
+- **Path preview**: coverage path per group. Curved and dogleg fairways are
+  split into pieces (boustrophedon decomposition) so passes don't fly over
+  the rough, the sweep angle is searched, and pieces and groups are ordered
+  (nearest neighbor plus 2-opt) for a short route from the dock and back,
+  with length and time estimates.
 - **Agent**: Claude (Haiku by default) with tool calls on top of the planner.
   "Survey the fairway on hole 4" pans the map, selects the fairway, fills in
   the stats and draws the path preview.
@@ -98,7 +101,7 @@ if it is off.
 backend/   FastAPI app: course model, grid, grouping, planner, agent, sim, w3w cache
   app/course.py    OSM snapshot -> holes, fairways, greens, tees (local meters)
   app/geo.py       dock-centered local frame and 3 m cells (mirrored in frontend/src/geo.ts)
-  app/planner.py   4-connected groups with stable ids, lawnmower path preview
+  app/planner.py   4-connected groups with stable ids, coverage path planning
   app/state.py     the mission draft: selection, groups, previews, route
   app/agent.py     Claude tool-use loop and tools
   app/sim.py       simulated drone and telemetry

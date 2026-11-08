@@ -75,3 +75,64 @@ def test_preview_covers_rectangle():
     assert p.passes == 4  # 30 m / 7.5 m
     assert p.heading_deg in (90, 270) or round(p.heading_deg) == 90
     assert 300 < p.length_m < 400
+
+
+def _fairway_paths():
+    from app.course import Course
+    from app.planner import cells_polygon
+
+    course = Course()
+    for hole in range(1, 10):
+        for comp in components(course.feature_cells(hole, "fairway")):
+            yield hole, comp, preview_path(comp), cells_polygon(comp)
+
+
+def test_paths_cover_every_fairway_cell():
+    import numpy as np
+    import shapely
+    from shapely.geometry import LineString
+
+    from app.geo import CELL_M
+    from app.planner import pass_spacing_m
+
+    limit = pass_spacing_m() / 2 + CELL_M  # well inside the camera's half footprint (12.6 m)
+    for hole, comp, p, _ in _fairway_paths():
+        centers = shapely.points(np.array([((i + 0.5) * CELL_M, (j + 0.5) * CELL_M) for i, j in comp]))
+        d = shapely.distance(LineString(p.waypoints), centers)
+        assert d.max() <= limit, (hole, float(d.max()))
+
+
+def test_dogleg_paths_stay_over_the_fairway():
+    from shapely.geometry import LineString
+
+    for hole, comp, p, poly in _fairway_paths():
+        line = LineString(p.waypoints)
+        outside = line.difference(poly.buffer(1.5)).length
+        assert outside <= max(0.12 * line.length, 20), (hole, outside, line.length)
+        if hole == 6 and len(comp) > 500:
+            assert line.length < 1600  # was 3,002 m with one sweep over the whole dogleg
+
+
+def test_l_shape_is_split_not_bridged():
+    # An L: a 60 x 15 m bar plus a 15 x 60 m leg. A sweep along either arm
+    # would cross the empty corner on every pass; the planner must avoid that
+    # (by splitting, or by picking a diagonal sweep that keeps rows whole).
+    from shapely.geometry import LineString
+
+    from app.planner import cells_polygon
+
+    cells = {(i, j) for i in range(20) for j in range(5)} | {(i, j) for i in range(5) for j in range(5, 20)}
+    p = preview_path(cells, spacing_m=7.5)
+    poly = cells_polygon(cells)
+    assert LineString(p.waypoints).difference(poly.buffer(1.5)).length < 10
+
+
+def test_plan_tour_orders_and_flips():
+    from app.planner import plan_tour
+
+    a = [(10.0, 0.0), (20.0, 0.0)]
+    b = [(30.0, 0.0), (40.0, 0.0)]
+    c = [(60.0, 0.0), (50.0, 0.0)]  # best flown reversed
+    order, picks, cost = plan_tour([[c, c[::-1]], [a, a[::-1]], [b, b[::-1]]], home=(0.0, 0.0))
+    assert order in ([1, 2, 0], [0, 2, 1])
+    assert abs(cost - 120.0) < 1e-6  # out and back along the line, no detours
