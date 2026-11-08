@@ -126,6 +126,18 @@ function addMarkers() {
   dock.className = "dock-marker";
   dock.title = course.dock.label;
   dock.innerHTML = "<span>DOCK</span>";
+  // Marker elements sit inside the map container, so their clicks would also
+  // reach the map and toggle the grid cell under the dock. Stop that, and show
+  // the dock's details instead.
+  for (const ev of ["mousedown", "mouseup", "click", "dblclick", "contextmenu", "touchstart", "touchend"]) {
+    dock.addEventListener(ev, (e) => e.stopPropagation());
+  }
+  dock.addEventListener("click", () => {
+    new maplibregl.Popup({ offset: 14, maxWidth: "240px" })
+      .setLngLat([course.dock.lon, course.dock.lat])
+      .setHTML(`<b>${esc(course.dock.label)}</b><div>${course.dock.lat.toFixed(6)}, ${course.dock.lon.toFixed(6)}</div><div class="muted">Grid origin: cell (0, 0) starts here.</div>`)
+      .addTo(map);
+  });
   new maplibregl.Marker({ element: dock }).setLngLat([course.dock.lon, course.dock.lat]).addTo(map);
 
   for (const f of course.features.features) {
