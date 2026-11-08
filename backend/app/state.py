@@ -80,16 +80,19 @@ class MissionState:
 
     # -- derived -------------------------------------------------------------
     def route(self) -> dict | None:
-        """Dock -> each previewed group (nearest first) -> dock, in local meters."""
+        """Dock -> previewed groups -> dock, ordered and oriented for the shortest trip."""
         with self.lock:
             if not self.previews:
                 return None
-            order = planner.order_from_dock({g: p.waypoints[0] for g, p in self.previews.items()})
+            gids = list(self.previews)
+            paths = [list(self.previews[g].waypoints) for g in gids]
+            idx, picks, _ = planner.plan_tour([[p, p[::-1]] for p in paths], home=(0.0, 0.0))
+            order = [gids[i] for i in idx]
             pts: list[tuple[float, float]] = [(0.0, 0.0)]
             survey = 0.0
-            for gid in order:
-                pts.extend(self.previews[gid].waypoints)
-                survey += self.previews[gid].length_m
+            for i, k in zip(idx, picks):
+                pts.extend(paths[i] if k == 0 else paths[i][::-1])
+                survey += self.previews[gids[i]].length_m
             pts.append((0.0, 0.0))
             total = LineString(pts).length
             return {

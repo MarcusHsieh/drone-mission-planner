@@ -72,7 +72,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "preview_path",
-        "description": "Draw straight lawnmower passes over groups and return length and estimated flight time. Omit group_ids to preview every group.",
+        "description": "Plan coverage passes over groups (split around doglegs and gaps, best sweep angle) and return length and estimated flight time. Omit group_ids to preview every group.",
         "input_schema": {
             "type": "object",
             "properties": {"group_ids": {"type": "array", "items": {"type": "integer"}}},
