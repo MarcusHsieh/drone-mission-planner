@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Drone Mission Planner</title>
+  </head>
+  <body>
+    <div id="app">
+      <div id="map"></div>
+      <div id="map-help">
+        <b>Click</b> select / deselect a cell · <b>Shift+drag</b> add a box · <b>Alt+drag</b> remove a box · <b>Right-click</b> cell info and what3words
+      </div>
+      <div id="basemap-toggle">
+        <button data-basemap="satellite" class="active">Satellite</button><button data-basemap="map">Map</button>
+      </div>
+      <aside id="side">
+        <header>
+          <div class="title">Drone Mission Planner</div>
+          <div class="subtitle" id="course-name">Loading course…</div>
+        </header>
+
+        <section id="chat-section">
+          <h2>Agent <span class="chip" id="model-chip"></span></h2>
+          <div id="chat-log"></div>
+          <div id="suggestions"></div>
+          <form id="chat-form">
+            <input id="chat-input" autocomplete="off" placeholder="Ask the agent, e.g. survey the fairway on hole 4" />
+            <button type="submit" id="chat-send">Send</button>
+          </form>
+        </section>
+
+        <section id="groups-section">
+          <h2>Selection <span class="muted" id="totals"></span></h2>
+          <div id="groups"></div>
+          <div class="row">
+            <button id="btn-preview">Preview path</button>
+            <button id="btn-clear" class="ghost">Clear selection</button>
+          </div>
+          <div id="route" class="muted small"></div>
+        </section>
+
+        <section id="drone-section">
+          <h2>Drone <span class="chip warn">Simulated</span></h2>
+          <div id="drone"></div>
+          <div class="row">
+            <button id="btn-fly">Fly</button>
+            <button id="btn-abort" class="danger">Abort (return to dock)</button>
+          </div>
+        </section>
+      </aside>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
