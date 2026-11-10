@@ -55,3 +55,23 @@ To keep pages from drifting:
   current as of a date or milestone.
 - When a limit listed under "Our choices and limits" gets fixed, update that
   section in the same PR.
+
+### What to update when the code changes
+
+Any change to behavior, an algorithm, a number, a tool or an API comes with
+its docs update in the same PR. This applies to people and to AI coding
+assistants alike.
+
+| If you change... | Update |
+| --- | --- |
+| `backend/app/geo.py`, `frontend/src/geo.ts`, grouping in `planner.py` or `state.py` | [Coordinate frame and grid](concepts/coordinate-frame-and-grid.md) |
+| Coverage planning in `planner.py` (spacing, decomposition, angle search, `plan_tour`), the route in `state.py` | [Coverage path planning](concepts/coverage-planning.md) |
+| `backend/app/course.py`, `backend/app/data/` | [Course data](concepts/course-data.md) |
+| `backend/app/agent.py` (tools, system prompt, loop), agent settings in `config.py` | [Agent](concepts/agent.md) |
+| A new concept with no page yet (for example sorties, charging, SITL) | A new page in `concepts/` with the same three sections, linked from the table above |
+| A choice between real alternatives that someone would ask about later | A new entry in [decisions](decisions.md) (add new entries, never rewrite old ones) |
+| New terms | The glossary above |
+| Setup, settings or how to run the app | The [main README](../README.md) |
+
+If a change truly needs no docs update, check "No docs change needed" in the
+PR template and say why in one line.
