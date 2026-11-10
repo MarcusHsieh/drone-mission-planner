@@ -111,6 +111,12 @@ frontend/  Vite + TypeScript + MapLibre GL
 
 Run the tests with `cd backend && uv run pytest`.
 
+## Docs
+
+Concept explanations (the grid, coverage path planning and boustrophedon
+decomposition, course data, the agent) and a design decision log are in
+[`docs/`](docs/README.md).
+
 ## Not in M1
 
 Brush selection, the agent's `select_box` tool, sorties and battery-based
