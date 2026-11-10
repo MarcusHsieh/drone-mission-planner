@@ -47,6 +47,19 @@ cd backend && uv run uvicorn app.main:app --port 8000
 
 Open http://localhost:8000.
 
+**Or do steps 2 and 3 with one command** from the repo root (step 1 is still
+needed once for the agent):
+
+```bash
+.\run            # Windows (PowerShell or cmd)
+./run.sh         # macOS / Linux / Git Bash
+```
+
+It installs frontend packages on the first run, rebuilds the frontend only
+when its files changed, and serves everything at http://localhost:8000. Add
+`--dev` (`.\run --dev`) to run the backend and the Vite dev server together
+with hot reload at http://localhost:5173. Ctrl+C stops everything.
+
 For frontend development with hot reload, run the backend as above and
 `npm run dev` in `frontend/`, then open http://localhost:5173.
 
