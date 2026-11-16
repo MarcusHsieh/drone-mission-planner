@@ -1,0 +1,6 @@
+# Planner overrides, loaded after ArduPilot's copter.parm.
+# Placeholder battery: the stock SITL quad draws about 35 A, so 3300 mAh
+# (the default) is empty after about 6 minutes, before a long fairway is done.
+# 12000 mAh is about 20 minutes, the same placeholder endurance as the
+# built-in sim (sim.ENDURANCE_S). Replace with the real pack later.
+BATT_CAPACITY 12000

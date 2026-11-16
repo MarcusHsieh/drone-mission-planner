@@ -70,6 +70,10 @@ export interface Telemetry {
   elapsed_s: number;
   speedup: number;
   message: string;
+  /** "sim" for the built-in sim, "sitl" for ArduPilot SITL over MAVLink. */
+  source?: "sim" | "sitl";
+  waypoints_reached?: number;
+  waypoints_total?: number;
 }
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {

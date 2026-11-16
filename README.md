@@ -26,8 +26,11 @@ What it does:
   the stats and draws the path preview.
 - **Simulated drone**: Fly takes off from the dock, flies the preview, returns
   and lands, with live telemetry (mode, battery, altitude, speed, heading, GPS)
-  over a WebSocket. Abort returns to the dock. ArduPilot SITL replaces this
-  in M3.
+  over a WebSocket. Abort returns to the dock.
+- **ArduPilot SITL** (optional): with `FLIGHT_BACKEND=sitl`, Fly uploads the
+  route as a MAVLink mission to ArduPilot SITL (a generic ArduCopter quad)
+  and the map shows the autopilot's real track. See
+  [Fly on ArduPilot SITL](#fly-on-ardupilot-sitl).
 
 ## Run it
 
@@ -71,7 +74,9 @@ For frontend development with hot reload, run the backend as above and
 | `AGENT_MODEL` | `claude-haiku-5-5` | The one place the model is set. Try `claude-sonnet-5-5` if Haiku picks the wrong tool. |
 | `AGENT_EFFORT` | `medium` | `low` is faster and cheaper, `high` is more careful. |
 | `W3W_API_KEY` | (none) | Optional. Without it the cell popup says what3words is not configured. |
-| `SIM_SPEEDUP` | `5` | Simulated flight speed relative to real time. |
+| `SIM_SPEEDUP` | `5` | Simulated flight speed relative to real time (built-in sim only). |
+| `FLIGHT_BACKEND` | `sim` | `sim` for the built-in sim, `sitl` to fly on ArduPilot SITL. |
+| `SITL_CONNECTION` | `tcp:127.0.0.1:5760` | Where SITL's MAVLink port is (only with `FLIGHT_BACKEND=sitl`). |
 
 The agent's token use for each reply is shown under the reply and logged by
 the backend.
@@ -89,6 +94,75 @@ the backend.
    update and keep their numbers.
 5. Click **Preview path**, then **Fly**. Watch the simulated drone fly the
    route and land on the dock.
+
+## Fly on ArduPilot SITL
+
+The planner can fly its route on ArduPilot SITL, the real ArduPilot flight
+code running against a simulated quad. SITL runs headless in Docker, and you
+watch the flight on the planner's map (and, if you like, in a ground control
+station at the same time). How it works and its limits are in
+[docs/concepts/sitl.md](docs/concepts/sitl.md).
+
+### On Windows (the demo)
+
+You need [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+running, plus uv and Node as above. Docker Desktop uses WSL2 underneath, but
+you don't need to open or set up a Linux distro.
+
+1. Start SITL from the repo root and leave it running:
+
+   ```powershell
+   docker compose -f sitl/compose.yaml up --build
+   ```
+
+   The first run downloads and compiles ArduPilot (about 10-20 minutes).
+   Later runs start in a few seconds without `--build`. It is ready when the
+   log shows `SERIAL0 on TCP port 5760`. Each start is a fresh quad sitting on
+   the dock.
+
+2. In `backend/.env`, add:
+
+   ```
+   FLIGHT_BACKEND=sitl
+   ```
+
+3. In a second terminal, start the planner as usual: `.\run`. Open
+   http://localhost:8000. The Drone panel shows an **ArduPilot SITL** chip and
+   "On dock, ready" once it is connected.
+
+4. Select an area (or ask the agent), click **Preview path**, then **Fly**.
+   The mission uploads, the autopilot arms (this can take up to a minute
+   right after SITL starts, while its GPS and EKF settle), takes off, flies
+   the passes and lands on the dock. The panel counts the waypoints the
+   autopilot reports reached. **Abort** switches it to RTL.
+
+5. Optional, for a standard autopilot view next to the planner: install
+   [QGroundControl](https://docs.qgroundcontrol.com/master/en/qgc-user-guide/getting_started/download_and_install.html)
+   or [Mission Planner](https://ardupilot.org/planner/docs/mission-planner-installation.html)
+   and connect it over **TCP to 127.0.0.1, port 5762**.
+   - QGroundControl: Application Settings > Comm Links > Add, type TCP, host
+     `127.0.0.1`, port `5762`, then Connect.
+   - Mission Planner: top right, choose TCP, click Connect, enter `127.0.0.1`
+     and `5762`.
+
+   It shows the same vehicle, its mode and its mission (read the mission in
+   the GCS after Fly uploads it).
+
+To run the simulation five times faster than real time, set `SPEEDUP`
+first: `$env:SPEEDUP=5; docker compose -f sitl/compose.yaml up` in
+PowerShell (`SPEEDUP=5 docker compose ...` in bash). Ctrl+C stops SITL.
+
+If Fly says it is not connected: check that the SITL container is running
+and that nothing else is using port 5760.
+
+### Headless (cloud, Linux, CI)
+
+```bash
+docker compose -f sitl/compose.yaml up --build -d     # or SPEEDUP=10 for quick runs
+cd backend
+uv run python -m tools.fly_sitl --hole 2              # flies hole 2's fairway, prints a JSON report
+SITL_TEST=1 uv run pytest tests/test_sitl_flight.py -s
+```
 
 ## Numbers are estimates
 
@@ -118,8 +192,12 @@ backend/   FastAPI app: course model, grid, grouping, planner, agent, sim, w3w c
   app/state.py     the mission draft: selection, groups, previews, route
   app/agent.py     Claude tool-use loop and tools
   app/sim.py       simulated drone and telemetry
+  app/mavlink_mission.py  route -> ArduPilot mission items, MAVLink mission upload
+  app/sitl_drone.py       flies the route on ArduPilot SITL (FLIGHT_BACKEND=sitl)
+  tools/fly_sitl.py       headless SITL flight with a pass/fail report
   tests/           pytest (the agent test uses a scripted client, no API calls)
 frontend/  Vite + TypeScript + MapLibre GL
+sitl/      ArduPilot SITL in Docker (Dockerfile, compose.yaml, start script, parameters)
 ```
 
 Run the tests with `cd backend && uv run pytest`.
@@ -133,5 +211,6 @@ decomposition, course data, the agent) and a design decision log are in
 ## Not in M1
 
 Brush selection, the agent's `select_box` tool, sorties and battery-based
-charge stops, ArduPilot SITL, saved missions, and Docker. These are planned
+charge stops (including the autonomous recharge loop on SITL), saved missions,
+and Docker for the planner itself. These are planned
 for M2 and M3.

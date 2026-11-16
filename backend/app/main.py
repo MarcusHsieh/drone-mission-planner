@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import anthropic
@@ -22,6 +23,7 @@ from .agent import Agent
 from .course import DOCK_LAT, DOCK_LON, DOCK_OSM_WAY, Course
 from .geo import CELL_M
 from .sim import DroneSim
+from .sitl_drone import SitlDrone
 from .state import MissionState
 from .w3w import W3WCache
 
@@ -31,9 +33,19 @@ course = Course()
 state = MissionState(course)
 agent = Agent(course, state)
 w3w = W3WCache(course)
-sim = DroneSim(course.frame)
+if config.FLIGHT_BACKEND == "sitl":
+    sim: DroneSim | SitlDrone = SitlDrone(course.frame, config.SITL_CONNECTION)
+else:
+    sim = DroneSim(course.frame)
 
-app = FastAPI(title="Drone Mission Planner (M1 demo)")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await sim.on_startup()
+    yield
+
+
+app = FastAPI(title="Drone Mission Planner (M1 demo)", lifespan=lifespan)
 
 
 class SelectionEdit(BaseModel):
@@ -62,6 +74,7 @@ def get_course() -> dict:
         "features": course.geojson(),
         "agent": {"model": config.AGENT_MODEL, "configured": bool(config.ANTHROPIC_API_KEY)},
         "w3w_configured": bool(config.W3W_API_KEY),
+        "flight_backend": config.FLIGHT_BACKEND,
     }
 
 

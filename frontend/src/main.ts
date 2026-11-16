@@ -418,8 +418,12 @@ function renderTelemetry(t: Telemetry) {
       <div><span>Heading</span>${t.heading_deg}°</div>
       <div><span>GPS</span>${t.gps_fix} · ${t.satellites} sats</div>
       <div><span>Flown</span>${fmtInt(t.distance_flown_m)} / ${fmtInt(t.route_m)} m</div>
+      ${t.waypoints_total ? `<div><span>Waypoints</span>${t.waypoints_reached} / ${t.waypoints_total} reached</div>` : ""}
       <div><span>Flight time</span>${fmtTime(t.elapsed_s)}${t.speedup !== 1 ? ` <em class="muted">(${t.speedup}× sim)</em>` : ""}</div>
     </div>`;
+  const chip = $("#drone-chip");
+  chip.textContent = t.source === "sitl" ? "ArduPilot SITL" : "Simulated";
+  chip.title = t.source === "sitl" ? "Flown by ArduPilot SITL over MAVLink" : "Built-in simulated drone";
   if (!map || !droneMarker) return;
   if (flying) {
     if (!wasFlying) trail.length = 0;

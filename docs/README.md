@@ -21,6 +21,7 @@ have what you need:
 | [Coverage path planning](concepts/coverage-planning.md) | Pass spacing, boustrophedon decomposition, sweep angle search, and tour ordering |
 | [Course data](concepts/course-data.md) | The OpenStreetMap snapshot and how fairways, greens and tees are matched to holes |
 | [Agent](concepts/agent.md) | How Claude drives the planner through tool calls, and what it is not allowed to do |
+| [ArduPilot SITL and MAVLink missions](concepts/sitl.md) | How a route becomes an ArduPilot mission, how it is uploaded and flown on SITL, and how to run it headless or as a demo |
 | [Design decisions](decisions.md) | A short log of decisions that shaped the project, with the reasons and alternatives |
 
 For setup, running the app and the demo script, see the [main README](../README.md).
@@ -41,6 +42,10 @@ For setup, running the app and the demo script, see the [main README](../README.
 | **Sidelap** | How much neighboring passes' footprints overlap, as a fraction of the footprint. |
 | **Preview** | The planned coverage path for one group, with its length, number of passes and estimated time. |
 | **Route** | The full trip: dock, then every previewed group in the best order, then back to the dock. |
+| **SITL** | Software in the loop: the real ArduPilot flight code running on a PC against a simulated vehicle. |
+| **MAVLink** | The message protocol between the autopilot and ground software (the planner backend, QGroundControl, Mission Planner). |
+| **Mission item** | One step of an ArduPilot mission: a command such as takeoff, waypoint or land, with its position and parameters. |
+| **GCS** | Ground control station, such as QGroundControl or Mission Planner. |
 | **Sortie** | One flight on one battery charge. M1 has no sorties yet: a route is assumed to fit on a single battery. Splitting into sorties with charge stops is planned for M2 and M3. |
 
 ## Keeping these docs current
@@ -68,6 +73,7 @@ assistants alike.
 | Coverage planning in `planner.py` (spacing, decomposition, angle search, `plan_tour`), the route in `state.py` | [Coverage path planning](concepts/coverage-planning.md) |
 | `backend/app/course.py`, `backend/app/data/` | [Course data](concepts/course-data.md) |
 | `backend/app/agent.py` (tools, system prompt, loop), agent settings in `config.py` | [Agent](concepts/agent.md) |
+| `backend/app/mavlink_mission.py`, `backend/app/sitl_drone.py`, `backend/tools/fly_sitl.py`, `sitl/`, SITL settings in `config.py` | [ArduPilot SITL and MAVLink missions](concepts/sitl.md) |
 | A new concept with no page yet (for example sorties, charging, SITL) | A new page in `concepts/` with the same three sections, linked from the table above |
 | A choice between real alternatives that someone would ask about later | A new entry in [decisions](decisions.md) (add new entries, never rewrite old ones) |
 | New terms | The glossary above |
