@@ -20,6 +20,7 @@ from starlette.concurrency import run_in_threadpool
 
 from . import config
 from .agent import Agent
+from .buildings import Buildings
 from .course import DOCK_LAT, DOCK_LON, DOCK_OSM_WAY, Course
 from .geo import CELL_M
 from .sim import DroneSim
@@ -33,6 +34,7 @@ course = Course()
 state = MissionState(course)
 agent = Agent(course, state)
 w3w = W3WCache(course)
+buildings = Buildings(course)
 if config.FLIGHT_BACKEND == "sitl":
     sim: DroneSim | SitlDrone = SitlDrone(course.frame, config.SITL_CONNECTION)
 else:
@@ -74,8 +76,15 @@ def get_course() -> dict:
         "features": course.geojson(),
         "agent": {"model": config.AGENT_MODEL, "configured": bool(config.ANTHROPIC_API_KEY)},
         "w3w_configured": bool(config.W3W_API_KEY),
+        # Sent to the browser on purpose: the 3D tiles are fetched from there.
+        "google_3d_key": config.GOOGLE_MAPS_API_KEY or None,
         "flight_backend": config.FLIGHT_BACKEND,
     }
+
+
+@app.get("/api/buildings")
+def get_buildings() -> dict:
+    return buildings.get()
 
 
 @app.get("/api/state")

@@ -16,6 +16,7 @@ import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { Telemetry } from "./api";
 import type { LocalFrame } from "./geo";
+import { Photoreal } from "./photoreal";
 
 /** The SITL quad is about 0.5 m motor to motor. */
 const ARM_M = 0.25;
@@ -64,6 +65,10 @@ export class Flight3D implements CustomLayerInterface {
 
   /** Set when the chase camera is on. */
   follow = false;
+  /** Google photorealistic tiles, once enabled; drawn only while `photorealOn`. */
+  photoreal: Photoreal | null = null;
+  photorealOn = false;
+
   /** How many times real size the drone is drawn at right now. */
   enlarge = 1;
   /** Called with the drone's smoothed position each frame (for the chase camera). */
@@ -258,6 +263,17 @@ export class Flight3D implements CustomLayerInterface {
     this.drone.visible = this.shadow.visible = this.plumb.visible = v;
   }
 
+  /** Start Google 3D tiles (opens one session). Call once, the first time a 3D view is shown. */
+  enablePhotoreal(apiKey: string): Photoreal {
+    if (!this.photoreal) {
+      this.photoreal = new Photoreal(apiKey, this.frame.lat0, this.frame.lon0);
+      this.photoreal.tiles.addEventListener("needs-update", () => this.map?.triggerRepaint());
+      this.photoreal.tiles.addEventListener("load-model", () => this.map?.triggerRepaint());
+      this.scene.add(this.photoreal.group);
+    }
+    return this.photoreal;
+  }
+
   // ------------------------------------------------------------ MapLibre hooks
   onAdd(map: MLMap, gl: WebGLRenderingContext | WebGL2RenderingContext) {
     this.map = map;
@@ -317,7 +333,19 @@ export class Flight3D implements CustomLayerInterface {
     const model = new THREE.Matrix4()
       .makeTranslation(this.origin.x, this.origin.y, this.origin.z ?? 0)
       .scale(new THREE.Vector3(s, -s, s));
-    this.camera.projectionMatrix = new THREE.Matrix4().fromArray(args.defaultProjectionData.mainMatrix as unknown as number[]).multiply(model);
+    const main = new THREE.Matrix4().fromArray(args.defaultProjectionData.mainMatrix as unknown as number[]);
+    this.camera.projectionMatrix = main.clone().multiply(model);
+
+    const pr = this.photoreal;
+    if (pr) {
+      pr.group.visible = this.photorealOn && pr.status !== "failed";
+      if (pr.group.visible) {
+        // Local meters -> MapLibre's view space: P^-1 * (P * V) * model.
+        const proj = new THREE.Matrix4().fromArray(args.projectionMatrix as unknown as number[]);
+        const localView = proj.invert().multiply(this.camera.projectionMatrix);
+        pr.update(localView, args.fov, canvas.width, canvas.height);
+      }
+    }
     this.renderer.resetState();
     this.renderer.render(this.scene, this.camera);
     if (this.armed || moving) this.map.triggerRepaint();
