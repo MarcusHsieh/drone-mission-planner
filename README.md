@@ -61,8 +61,9 @@ needed once for the agent):
 ./run.sh         # macOS / Linux / Git Bash
 ```
 
-It installs frontend packages on the first run, rebuilds the frontend only
-when its files changed, and serves everything at http://localhost:8000. Add
+It installs frontend packages on the first run and again whenever
+`frontend/package-lock.json` changes (after a pull that adds a package),
+rebuilds the frontend only when its files changed, and serves everything at http://localhost:8000. Add
 `--dev` (`.\run --dev`) to run the backend and the Vite dev server together
 with hot reload at http://localhost:5173. Ctrl+C stops everything.
 
