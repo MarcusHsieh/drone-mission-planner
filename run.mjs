@@ -65,8 +65,14 @@ if (!existsSync(join(BACKEND, ".env"))) {
   log("Create it from backend/.env.example (see README).");
 }
 
+// npm writes node_modules/.package-lock.json on every install, so a lockfile
+// newer than it means a pull added or changed packages since the last install.
+const installed = newestMtime(join(FRONTEND, "node_modules", ".package-lock.json"));
 if (!existsSync(join(FRONTEND, "node_modules"))) {
-  log("Installing frontend packages (first run only)...");
+  log("Installing frontend packages (first run)...");
+  run("npm", ["install"], FRONTEND);
+} else if (installed === 0 || newestMtime(join(FRONTEND, "package-lock.json")) > installed) {
+  log("Frontend packages changed, installing...");
   run("npm", ["install"], FRONTEND);
 }
 
