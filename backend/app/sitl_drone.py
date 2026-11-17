@@ -33,6 +33,7 @@ os.environ.setdefault("MAVLINK20", "1")
 from pymavlink import mavutil  # noqa: E402
 
 from . import mavlink_mission as mm
+from . import vitals
 from .geo import LocalFrame
 
 log = logging.getLogger(__name__)
@@ -65,7 +66,15 @@ class SitlDrone:
             "lat": frame.lat0, "lon": frame.lon0, "alt": 0.0, "heading": 0, "speed": 0.0, "roll": 0.0, "pitch": 0.0,
             "battery": 100.0, "voltage": 0.0, "fix": 0, "sats": 0, "ap_mode": "UNKNOWN",
             "armed": False, "mission_seq": 0, "boot_ms": 0,
+            # Everything below is for the dashboard panels.
+            "climb": 0.0, "airspeed": 0.0, "throttle": 0, "alt_msl": None, "system_status": None,
+            "current": None, "consumed_mah": None, "time_remaining_s": None, "capacity_mah": None,
+            "hdop": None, "vdop": None, "h_acc": None,
+            "sys_present": 0, "sys_enabled": 0, "sys_health": 0, "comm_drop_pct": None,
+            "ekf_flags": None, "ekf_var": {}, "vibe": None, "rng": None, "rc_rssi": None,
+            "wp_dist": None, "xtrack": None, "hb_wall": None,
         }  # fmt: skip
+        self.msglog = vitals.MessageLog()
         self._reset_flight()
         threading.Thread(target=self._reader, name="mavlink-reader", daemon=True).start()
 
@@ -139,6 +148,77 @@ class SitlDrone:
             "simulated": True,
             "source": "sitl",
             "connected": self.connected,
+            **self._vitals(),
+        }
+
+    def _vitals(self) -> dict[str, Any]:
+        """The dashboard's extra panels: HUD, battery, GPS, health, link, rangefinder, messages."""
+        v = self.v
+        now = time.monotonic()
+        dock_x, dock_y = self.frame.to_xy(v["lon"], v["lat"])
+        prearm_reasons = [s for s in self.statustext[-8:] if s.startswith("PreArm")]
+        rng = v["rng"]
+        rangefinder = None
+        if rng is not None:
+            dist, lo, hi, age_t = rng
+            rangefinder = {
+                "distance_m": round(dist, 2),
+                "min_m": lo,
+                "max_m": hi,
+                # ArduPilot reports max+1 m (or max) when nothing is in range.
+                "in_range": lo <= dist < hi,
+                "age_s": round(now - age_t, 1),
+            }
+        ekf = None
+        if v["ekf_flags"] is not None:
+            ekf = vitals.ekf_status(v["ekf_flags"], v["ekf_var"])
+        vibe = None
+        if v["vibe"] is not None:
+            x, y, z, c0, c1, c2 = v["vibe"]
+            vibe = {"x": round(x, 1), "y": round(y, 1), "z": round(z, 1), "clipping": [c0, c1, c2], "level": vitals.vibration_level(x, y, z)}
+        m = self.master
+        loss = None
+        if m is not None and getattr(m, "mav_count", 0) > 50:
+            loss = round(m.packet_loss(), 1)
+        return {
+            "climb_ms": round(v["climb"], 1),
+            "airspeed_ms": round(v["airspeed"], 1),
+            "throttle_pct": v["throttle"],
+            "alt_msl_m": None if v["alt_msl"] is None else round(v["alt_msl"], 1),
+            "system_status": v["system_status"],
+            "dock_distance_m": round(math.hypot(dock_x, dock_y), 1),
+            "dock_bearing_deg": round(math.degrees(math.atan2(dock_x, dock_y))) % 360,
+            "battery": {
+                "voltage_v": round(v["voltage"], 2),
+                "current_a": None if v["current"] is None else round(v["current"], 1),
+                "remaining_pct": round(v["battery"], 1),
+                "consumed_mah": v["consumed_mah"],
+                "capacity_mah": v["capacity_mah"],
+                "time_remaining_s": v["time_remaining_s"],
+            },
+            "gps": {
+                "fix": GPS_FIX.get(v["fix"], str(v["fix"])),
+                "fix_type": v["fix"],
+                "satellites": v["sats"],
+                "hdop": v["hdop"],
+                "vdop": v["vdop"],
+                "h_acc_m": v["h_acc"],
+            },
+            "ekf": ekf,
+            "vibration": vibe,
+            "rangefinder": rangefinder,
+            "sensors": vitals.sensor_health(v["sys_present"], v["sys_enabled"], v["sys_health"]),
+            "prearm": vitals.prearm_status(v["sys_present"], v["sys_enabled"], v["sys_health"], prearm_reasons),
+            "link": {
+                "connected": self.connected,
+                "endpoint": self.connection,
+                "heartbeat_age_s": None if v["hb_wall"] is None else round(now - v["hb_wall"], 1),
+                "packet_loss_pct": loss,
+                "vehicle_drop_pct": v["comm_drop_pct"],
+                "rc_rssi_pct": v["rc_rssi"],
+            },
+            "nav": {"wp_dist_m": v["wp_dist"], "xtrack_m": v["xtrack"], "mission_seq": v["mission_seq"]},
+            "messages": self.msglog.tail(12),
         }
 
     async def on_startup(self) -> None:
@@ -169,7 +249,10 @@ class SitlDrone:
                 self.master = m
                 # SITL's TCP ports send nothing until asked. 5 Hz of everything is plenty.
                 m.mav.request_data_stream_send(m.target_system, m.target_component, mavlink.MAV_DATA_STREAM_ALL, 5, 1)
+                # The pack size for the battery panel's mAh gauge.
+                m.mav.param_request_read_send(m.target_system, m.target_component, b"BATT_CAPACITY", -1)
                 self.connected = True
+                self.msglog.add(f"Connected to the autopilot at {self.connection}", vitals.INFO, "planner")
                 if self.phase == "IDLE":
                     self.message = "On dock, ready"
                 log.info("Connected to SITL (system %s)", m.target_system)
@@ -185,6 +268,7 @@ class SitlDrone:
             except Exception as e:  # noqa: BLE001 - keep retrying whatever went wrong
                 if self.connected:
                     log.warning("Lost SITL connection: %s", e)
+                    self.msglog.add(f"Lost the autopilot link: {e}", vitals.ERROR, "planner")
                 self.connected = False
                 self.master = None
                 if not self.flying:
@@ -195,16 +279,24 @@ class SitlDrone:
         t = msg.get_type()
         v = self.v
         if t == "HEARTBEAT" and msg.get_srcSystem() == m.target_system and msg.get_srcComponent() == 1:
-            v["ap_mode"] = mavutil.mode_string_v10(msg)
+            mode = mavutil.mode_string_v10(msg)
+            if mode != v["ap_mode"] and v["ap_mode"] != "UNKNOWN":
+                self.msglog.add(f"Mode {mode}", vitals.NOTICE, "planner")
+            v["ap_mode"] = mode
+            v["hb_wall"] = time.monotonic()
+            v["system_status"] = vitals.MAV_STATE.get(msg.system_status, str(msg.system_status))
             armed = bool(msg.base_mode & mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
             if armed and not v["armed"]:
                 self.arm_boot_ms = v["boot_ms"]
                 self.arm_wall = time.monotonic()
                 self.track = []
+            if armed != v["armed"]:
+                self.msglog.add("Armed" if armed else "Disarmed", vitals.NOTICE, "planner")
             v["armed"] = armed
         elif t == "GLOBAL_POSITION_INT":
             v["lat"], v["lon"] = msg.lat / 1e7, msg.lon / 1e7
             v["alt"] = msg.relative_alt / 1000
+            v["alt_msl"] = msg.alt / 1000
             v["boot_ms"] = msg.time_boot_ms
             if msg.hdg != 65535:
                 v["heading"] = msg.hdg / 100
@@ -217,12 +309,46 @@ class SitlDrone:
             v["roll"], v["pitch"] = math.degrees(msg.roll), math.degrees(msg.pitch)
         elif t == "VFR_HUD":
             v["speed"] = msg.groundspeed
+            v["airspeed"], v["climb"], v["throttle"] = msg.airspeed, msg.climb, msg.throttle
         elif t == "SYS_STATUS":
             if msg.battery_remaining >= 0:
                 v["battery"] = msg.battery_remaining
             v["voltage"] = msg.voltage_battery / 1000
+            v["current"] = msg.current_battery / 100 if msg.current_battery >= 0 else None
+            v["sys_present"] = msg.onboard_control_sensors_present
+            v["sys_enabled"] = msg.onboard_control_sensors_enabled
+            v["sys_health"] = msg.onboard_control_sensors_health
+            v["comm_drop_pct"] = round(msg.drop_rate_comm / 100, 1)
+        elif t == "BATTERY_STATUS" and msg.id == 0:
+            if msg.current_consumed >= 0:
+                v["consumed_mah"] = msg.current_consumed
+            tr = getattr(msg, "time_remaining", 0)
+            v["time_remaining_s"] = tr if tr else None
+        elif t == "PARAM_VALUE" and msg.param_id == "BATT_CAPACITY":
+            v["capacity_mah"] = round(msg.param_value)
         elif t == "GPS_RAW_INT":
             v["fix"], v["sats"] = msg.fix_type, msg.satellites_visible
+            v["hdop"] = None if msg.eph == 65535 else round(msg.eph / 100, 2)
+            v["vdop"] = None if msg.epv == 65535 else round(msg.epv / 100, 2)
+            h_acc = getattr(msg, "h_acc", 0)
+            v["h_acc"] = round(h_acc / 1000, 2) if h_acc else None
+        elif t == "EKF_STATUS_REPORT":
+            v["ekf_flags"] = msg.flags
+            v["ekf_var"] = {
+                "velocity": msg.velocity_variance,
+                "pos_horiz": msg.pos_horiz_variance,
+                "pos_vert": msg.pos_vert_variance,
+                "compass": msg.compass_variance,
+                "terrain": msg.terrain_alt_variance,
+            }
+        elif t == "VIBRATION":
+            v["vibe"] = (msg.vibration_x, msg.vibration_y, msg.vibration_z, msg.clipping_0, msg.clipping_1, msg.clipping_2)
+        elif t == "DISTANCE_SENSOR" and msg.orientation == mavlink.MAV_SENSOR_ROTATION_PITCH_270:
+            v["rng"] = (msg.current_distance / 100, msg.min_distance / 100, msg.max_distance / 100, time.monotonic())
+        elif t == "RC_CHANNELS":
+            v["rc_rssi"] = None if msg.rssi == 255 else round(msg.rssi * 100 / 254)
+        elif t == "NAV_CONTROLLER_OUTPUT":
+            v["wp_dist"], v["xtrack"] = msg.wp_dist, round(msg.xtrack_error, 1)
         elif t == "MISSION_CURRENT":
             v["mission_seq"] = msg.seq
         elif t == "MISSION_ITEM_REACHED":
@@ -231,6 +357,7 @@ class SitlDrone:
         elif t == "STATUSTEXT":
             text = msg.text.strip()
             self.statustext = (self.statustext + [text])[-20:]
+            self.msglog.add(text, msg.severity)
             log.info("SITL: %s", text)
         if self._listening.is_set():
             try:
@@ -310,6 +437,7 @@ class SitlDrone:
         self._listening.set()
         try:
             self.message = f"Uploading mission ({len(self.items)} items)"
+            self.msglog.add(self.message, vitals.INFO, "planner")
             mm.upload_mission(self.master, self.items, self._recv)
             self.message = "Mission uploaded, arming"
             self._set_mode("GUIDED")
@@ -339,10 +467,12 @@ class SitlDrone:
                 time.sleep(TICK_S)
             self.phase = "DONE"
             self.message = "Aborted, landed at the dock" if self.abort_requested else "Mission complete, landed at the dock"
+            self.msglog.add(self.message, vitals.NOTICE, "planner")
         except Exception as e:  # noqa: BLE001
             log.exception("SITL flight failed")
             self.phase = "FAILED"
             self.message = f"Flight failed: {e}"
+            self.msglog.add(self.message, vitals.ERROR, "planner")
             if self.v["armed"] and self.master is not None:
                 try:
                     self.master.set_mode("RTL")
@@ -355,6 +485,7 @@ class SitlDrone:
         self.abort_requested = True
         if self.phase == "FLYING" and self.master is not None:
             self.message = "Abort: RTL, returning to the dock"
+            self.msglog.add(self.message, vitals.WARNING, "planner")
             self.master.set_mode("RTL")  # fire and forget; the heartbeat shows whether it took
 
     def wait_done(self, timeout_s: float) -> bool:

@@ -22,6 +22,7 @@ have what you need:
 | [Course data](concepts/course-data.md) | The OpenStreetMap snapshot and how fairways, greens and tees are matched to holes |
 | [Agent](concepts/agent.md) | How Claude drives the planner through tool calls, and what it is not allowed to do |
 | [ArduPilot SITL and MAVLink missions](concepts/sitl.md) | How a route becomes an ArduPilot mission, how it is uploaded and flown on SITL, and how to run it headless or as a demo |
+| [Flight dashboard](concepts/dashboard.md) | The movable panels, what each instrument shows and where it comes from in MAVLink, and what stays in QGroundControl |
 | [Design decisions](decisions.md) | A short log of decisions that shaped the project, with the reasons and alternatives |
 
 For setup, running the app and the demo script, see the [main README](../README.md).
@@ -46,6 +47,11 @@ For setup, running the app and the demo script, see the [main README](../README.
 | **MAVLink** | The message protocol between the autopilot and ground software (the planner backend, QGroundControl, Mission Planner). |
 | **Mission item** | One step of an ArduPilot mission: a command such as takeoff, waypoint or land, with its position and parameters. |
 | **GCS** | Ground control station, such as QGroundControl or Mission Planner. |
+| **Panel** | One movable part of the web app (the map, the agent, an instrument). Panels can be stacked as tabs, resized, floated and closed. |
+| **STATUSTEXT** | A text message from the autopilot with a severity, such as `PreArm: GPS not healthy`. Shown in the Messages panel. |
+| **EKF** | ArduPilot's extended Kalman filter: it fuses IMU, GPS, compass and barometer into the position and attitude the autopilot flies on. |
+| **HDOP** | Horizontal dilution of precision: how good the GPS satellites' geometry is for a position fix. Lower is better. |
+| **Pre-arm checks** | ArduPilot's checks before it allows arming (sensors, calibration, GPS, EKF, battery, RC). |
 | **Sortie** | One flight on one battery charge. M1 has no sorties yet: a route is assumed to fit on a single battery. Splitting into sorties with charge stops is planned for M2 and M3. |
 
 ## Keeping these docs current
@@ -74,6 +80,7 @@ assistants alike.
 | `backend/app/course.py`, `backend/app/data/` | [Course data](concepts/course-data.md) |
 | `backend/app/agent.py` (tools, system prompt, loop), agent settings in `config.py` | [Agent](concepts/agent.md) |
 | `backend/app/mavlink_mission.py`, `backend/app/sitl_drone.py`, `backend/tools/fly_sitl.py`, `sitl/`, SITL settings in `config.py` | [ArduPilot SITL and MAVLink missions](concepts/sitl.md) |
+| `frontend/src/layout.ts`, `panels.ts`, `hud.ts`, panel contents in `frontend/index.html`, `backend/app/vitals.py`, telemetry fields in `sim.py` or `sitl_drone.py` | [Flight dashboard](concepts/dashboard.md) |
 | A new concept with no page yet (for example sorties, charging, SITL) | A new page in `concepts/` with the same three sections, linked from the table above |
 | A choice between real alternatives that someone would ask about later | A new entry in [decisions](decisions.md) (add new entries, never rewrite old ones) |
 | New terms | The glossary above |

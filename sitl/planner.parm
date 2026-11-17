@@ -4,3 +4,12 @@
 # 12000 mAh is about 20 minutes, the same placeholder endurance as the
 # built-in sim (sim.ENDURANCE_S). Replace with the real pack later.
 BATT_CAPACITY 12000
+
+# Downward rangefinder like the airframe's TFmini-S (0.1 to 12 m), simulated
+# by SITL (TYPE 100) so the dashboard's rangefinder panel has data. On the real
+# drone it is RNGFND1_TYPE 20 (Benewake TFmini serial) on a SERIALn port set
+# to protocol 9. Copter 4.6 still takes these limits in centimeters.
+RNGFND1_TYPE 100
+RNGFND1_MIN_CM 10
+RNGFND1_MAX_CM 1200
+RNGFND1_ORIENT 25
