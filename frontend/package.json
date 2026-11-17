@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "3d-tiles-renderer": "^0.5.3",
+    "dockview-core": "^8.9.0",
     "maplibre-gl": "^5.24.0",
     "three": "^0.180.0"
   },

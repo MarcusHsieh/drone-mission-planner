@@ -229,6 +229,13 @@ commands from the ground station one at a time.
   ran out in about 6 minutes, before a long fairway was done. Low-battery
   failsafes are off, as in ArduPilot's SITL defaults. The real pack and
   failsafe settings come with the airframe.
+- **A simulated downward rangefinder.** `sitl/planner.parm` adds SITL's
+  rangefinder (`RNGFND1_TYPE` 100) with the TFmini-S's 0.1 to 12 m range, so
+  the dashboard's Rangefinder panel has data. Copter 4.6 still takes the
+  limits in centimeters (`RNGFND1_MIN_CM`, `RNGFND1_MAX_CM`). On the real
+  drone the TFmini-S is `RNGFND1_TYPE` 20 on a serial port. The hole 2 SITL
+  test passes with it (November 2026). See
+  [Flight dashboard](dashboard.md).
 - **Generic quad.** The SITL model is ArduPilot's `quad` (a + frame) with
   default tuning. Modeling the real airframe means a new SITL model or
   parameter file, plus tuning.

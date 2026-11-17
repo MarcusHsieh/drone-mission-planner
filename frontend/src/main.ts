@@ -4,6 +4,8 @@ import "./style.css";
 import { api, AgentReply, CourseInfo, Group, MissionState, Telemetry } from "./api";
 import { LocalFrame } from "./geo";
 import { Flight3D } from "./view3d";
+import { Dashboard } from "./layout";
+import { setupPanels, updatePanels } from "./panels";
 
 // Distinct, readable on satellite imagery.
 const PALETTE = ["#22d3ee", "#f472b6", "#facc15", "#a78bfa", "#fb923c", "#4ade80", "#60a5fa", "#f87171"];
@@ -73,6 +75,12 @@ function buildMap() {
       ],
     },
   });
+  // The map lives in a dashboard panel that can be resized, moved, hidden in a
+  // tab and shown again; resize the map with its panel every time.
+  new ResizeObserver(() => {
+    const el = $("#map");
+    if (el.clientWidth > 0 && el.clientHeight > 0) map.resize();
+  }).observe($("#map"));
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-left");
   map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
   map.on("load", () => {
@@ -429,6 +437,7 @@ function renderTelemetry(t: Telemetry) {
   $("#drone").innerHTML = `
     <div class="drone-status"><span class="mode mode-${t.mode.toLowerCase()}">${t.mode}</span> ${esc(t.message)}</div>
     <div class="battery"><div style="width:${Math.max(0, t.battery_pct)}%;background:${battColor}"></div><span>${t.battery_pct.toFixed(0)}% · ${t.voltage_v.toFixed(1)} V</span></div>
+    ${t.route_m ? `<div class="progress" title="Mission progress"><div style="width:${Math.min(100, t.progress_pct)}%"></div><span>${t.progress_pct}%</span></div>` : ""}
     <div class="stats">
       <div><span>Altitude</span>${t.alt_m.toFixed(1)} m</div>
       <div><span>Speed</span>${t.groundspeed_ms.toFixed(1)} m/s</div>
@@ -436,11 +445,13 @@ function renderTelemetry(t: Telemetry) {
       <div><span>GPS</span>${t.gps_fix} · ${t.satellites} sats</div>
       <div><span>Flown</span>${fmtInt(t.distance_flown_m)} / ${fmtInt(t.route_m)} m</div>
       ${t.waypoints_total ? `<div><span>Waypoints</span>${t.waypoints_reached} / ${t.waypoints_total} reached</div>` : ""}
+      ${flying && t.nav?.wp_dist_m ? `<div><span>Next WP</span>${fmtInt(t.nav.wp_dist_m)} m${t.nav.xtrack_m ? ` · ${Math.abs(t.nav.xtrack_m).toFixed(1)} m off line` : ""}</div>` : ""}
       <div><span>Flight time</span>${fmtTime(t.elapsed_s)}${t.speedup !== 1 ? ` <em class="muted">(${t.speedup}× sim)</em>` : ""}</div>
     </div>`;
   const chip = $("#drone-chip");
   chip.textContent = t.source === "sitl" ? "ArduPilot SITL" : "Simulated";
   chip.title = t.source === "sitl" ? "Flown by ArduPilot SITL over MAVLink" : "Built-in simulated drone";
+  updatePanels(t);
   if (!map || !droneMarker) return;
   flight3d?.update(t);
   if (flying) {
@@ -667,6 +678,8 @@ async function boot() {
   frame = new LocalFrame(course.frame.lat0, course.frame.lon0, course.frame.cell_m);
   $("#course-name").textContent = `${course.name} · dock at hole 1 tee`;
   $("#model-chip").textContent = course.agent.model;
+  new Dashboard($("#dock"));
+  setupPanels();
   buildMap();
   setupSelection();
   setupChat();
