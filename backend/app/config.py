@@ -17,6 +17,10 @@ AGENT_MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "8"))
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 W3W_API_KEY = os.getenv("W3W_API_KEY", "")
+# Optional: Google Map Tiles API key for photorealistic 3D tiles in the 3D view.
+# It is sent to the browser, so restrict it to the Map Tiles API and to
+# http://localhost:8000/* and http://localhost:5173/* in Google Cloud.
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 
 # Simulated flight runs faster than real time so a demo flight takes about a minute.
 SIM_SPEEDUP = float(os.getenv("SIM_SPEEDUP", "5"))
