@@ -1,0 +1,16 @@
+# ArduPilot SITL for the planner. From the repo root:
+#   docker compose -f sitl/compose.yaml up --build      (first time: builds ArduPilot)
+#   docker compose -f sitl/compose.yaml up              (later)
+# Ctrl+C stops it. Every start is a fresh vehicle on the dock.
+services:
+  sitl:
+    build: .
+    image: drone-planner-sitl:copter-4.6.3
+    ports:
+      - "127.0.0.1:5760:5760"   # planner backend (SITL_CONNECTION=tcp:127.0.0.1:5760)
+      - "127.0.0.1:5762:5762"   # QGroundControl / Mission Planner (TCP, port 5762)
+      - "127.0.0.1:5763:5763"   # spare: MAVProxy or a second GCS
+    environment:
+      SPEEDUP: "${SPEEDUP:-1}"
+      # HOME_LOC: "37.733897,-121.929056,140,0"
+    stop_grace_period: 2s

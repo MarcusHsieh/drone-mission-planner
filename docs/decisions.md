@@ -117,3 +117,34 @@ right now).
 
 **Revisit if** the project needs a public-facing site, at which point
 `/docs` can be published with GitHub Pages without moving anything.
+
+---
+
+## D6. Run SITL headless in Docker and show it on the planner's map
+
+**Status:** accepted (2026-11-16)
+
+**Decision.** ArduPilot SITL (generic ArduCopter quad) runs headless in a
+Docker container on every platform, with MAVLink on TCP ports 5760 (the
+planner) and 5762 (an optional ground control station). The planner stays a
+native app. The visual demo is the planner's own map plus, optionally,
+QGroundControl or Mission Planner on Windows. No 3D simulator.
+
+**Why.** On Windows, Docker Desktop hides WSL2 behind one installer and one
+command, and the container only needs TCP ports, which Docker Desktop
+forwards to `localhost` reliably. Nothing in the demo needs a Linux GUI, so
+WSLg, GPU drivers and X servers are out of the picture. The same image is
+used for the headless cloud test, so what is tested is what is demoed. The
+planner's map already shows what matters for a survey: the planned passes
+and the autopilot's real track.
+
+**Alternatives.** SITL directly in a WSL2 distro (works, but means managing
+a distro, its networking and an ArduPilot build by hand). Gazebo with WSLg
+(a 3D view of a generic quad, at the cost of a GUI stack, GPU setup and a much
+larger install; worth it once there is a real airframe model and a camera to
+simulate). Mission Planner's built-in simulator (easy, but downloads its own
+SITL build and home location, so it isn't the same setup as the test).
+
+**Revisit if** we need a camera or sensor simulation (then Gazebo), or once
+the real airframe has its own SITL model.
+See [ArduPilot SITL and MAVLink missions](concepts/sitl.md).

@@ -46,6 +46,9 @@ class DroneSim:
         self.sim_elapsed = 0.0
         self.message = "On dock, charged"
 
+    async def on_startup(self) -> None:
+        """Nothing to start: the sim publishes from its own flight task."""
+
     @property
     def flying(self) -> bool:
         return self.task is not None and not self.task.done()
@@ -72,6 +75,7 @@ class DroneSim:
             "speedup": config.SIM_SPEEDUP,
             "message": self.message,
             "simulated": True,
+            "source": "sim",
         }
 
     async def publish(self) -> None:

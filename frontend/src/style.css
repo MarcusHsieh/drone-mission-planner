@@ -68,7 +68,7 @@ button.small { padding: 3px 8px; font-size: 12px; }
 .drone-status { margin-bottom: 8px; }
 .mode { font-weight: 700; font-size: 12px; padding: 2px 7px; border-radius: 6px; background: #1e293b; margin-right: 6px; }
 .mode-auto { background: #14532d; color: #bbf7d0; }
-.mode-takeoff, .mode-land { background: #1e3a8a; color: #bfdbfe; }
+.mode-takeoff, .mode-land, .mode-preflight { background: #1e3a8a; color: #bfdbfe; }
 .mode-rtl { background: #713f12; color: #fde68a; }
 .battery { position: relative; height: 18px; background: #0b1324; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .battery div { height: 100%; transition: width 0.3s; }

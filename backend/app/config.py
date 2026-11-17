@@ -21,4 +21,11 @@ W3W_API_KEY = os.getenv("W3W_API_KEY", "")
 # Simulated flight runs faster than real time so a demo flight takes about a minute.
 SIM_SPEEDUP = float(os.getenv("SIM_SPEEDUP", "5"))
 
+# Which drone the Fly button flies: "sim" (the built-in point-mass sim) or
+# "sitl" (ArduPilot SITL over MAVLink, see docs/concepts/sitl.md).
+FLIGHT_BACKEND = os.getenv("FLIGHT_BACKEND", "sim").strip().lower()
+# Where SITL's MAVLink port is. SITL's first TCP port is 5760; a ground
+# control station can use the second one (5762) at the same time.
+SITL_CONNECTION = os.getenv("SITL_CONNECTION", "tcp:127.0.0.1:5760")
+
 DATA_DIR = Path(os.getenv("DATA_DIR", Path(__file__).resolve().parent.parent / "var"))
