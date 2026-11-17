@@ -164,6 +164,11 @@ uv run python -m tools.fly_sitl --hole 2              # flies hole 2's fairway, 
 SITL_TEST=1 uv run pytest tests/test_sitl_flight.py -s
 ```
 
+CI (`.github/workflows/ci.yml`) does the same on every PR and push to
+`main`: the backend tests, then hole 2 flown on SITL at 10x speed. The SITL
+image is kept in the GitHub Actions cache, so it only recompiles when
+`sitl/` changes.
+
 ## Numbers are estimates
 
 Pass spacing assumes 15 m altitude, an 80 degree camera field of view and 70%

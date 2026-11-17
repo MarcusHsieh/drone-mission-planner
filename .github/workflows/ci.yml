@@ -1,0 +1,70 @@
+# Backend tests on every PR, plus one real flight on ArduPilot SITL.
+#
+# The SITL image (sitl/Dockerfile) takes ~5 minutes to compile from scratch,
+# so its layers are kept in the GitHub Actions cache. After the first run it
+# only rebuilds when something in sitl/ changes.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run pytest -q
+
+  sitl:
+    name: Fly a mission on ArduPilot SITL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the SITL image (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: sitl
+          tags: drone-planner-sitl:copter-4.6.3
+          load: true
+          # mode=max keeps the compile stage too, which is the slow part.
+          cache-from: type=gha,scope=sitl
+          cache-to: type=gha,scope=sitl,mode=max
+      - name: Start SITL at 10x speed
+        run: SPEEDUP=10 docker compose -f sitl/compose.yaml up -d --no-build
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Fly hole 2's fairway and check every waypoint
+        working-directory: backend
+        env:
+          SITL_TEST: "1"
+        run: |
+          uv sync --locked
+          uv run pytest -q -s tests/test_sitl_flight.py
+      - name: SITL log
+        if: always()
+        run: docker compose -f sitl/compose.yaml logs --no-color | tail -n 100
+      - name: Stop SITL
+        if: always()
+        run: docker compose -f sitl/compose.yaml down

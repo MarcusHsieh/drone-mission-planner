@@ -17,6 +17,7 @@ everything else (selection, groups, previews, the agent) is unchanged.
 | Headless flight with a pass/fail report | [`backend/tools/fly_sitl.py`](../../backend/tools/fly_sitl.py) |
 | SITL container, start script, parameters | [`sitl/`](../../sitl/) (`Dockerfile`, `compose.yaml`, `run-sitl.sh`, `planner.parm`) |
 | Tests | [`backend/tests/test_mavlink_mission.py`](../../backend/tests/test_mavlink_mission.py) (no SITL needed), [`backend/tests/test_sitl_flight.py`](../../backend/tests/test_sitl_flight.py) (flies on SITL, skipped unless `SITL_TEST=1`) |
+| CI: backend tests, then the SITL flight test against the cached image | [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) |
 
 The mission for a route (dock, survey points, dock) is:
 
