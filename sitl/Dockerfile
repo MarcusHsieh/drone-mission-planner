@@ -26,6 +26,8 @@ FROM ubuntu:24.04
 COPY --from=build /ardupilot/build/sitl/bin/arducopter /usr/local/bin/arducopter
 COPY --from=build /ardupilot/Tools/autotest/default_params/copter.parm /sitl/copter.parm
 COPY planner.parm run-sitl.sh /sitl/
+# Backstop for checkouts made before .gitattributes: strip Windows CRLF line endings.
+RUN sed -i 's/\r$//' /sitl/run-sitl.sh /sitl/planner.parm
 WORKDIR /sitl/data
 # 5760: the planner backend. 5762 and 5763: a ground control station or MAVProxy.
 EXPOSE 5760 5762 5763

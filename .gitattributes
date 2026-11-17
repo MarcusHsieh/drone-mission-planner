@@ -1,0 +1,5 @@
+# Shell scripts and ArduPilot parameter files run inside Linux containers.
+# Keep LF line endings even when git on Windows converts to CRLF.
+*.sh   text eol=lf
+*.parm text eol=lf
+sitl/Dockerfile text eol=lf
