@@ -187,3 +187,42 @@ model is smoothed between updates.
 **Revisit if** we add camera simulation or obstacle avoidance (then Gazebo
 earns its setup), or the site has real elevation changes (then add a terrain
 source).
+
+## D8. An in-flight dashboard in the web app, QGC for setup
+
+**Status:** accepted (2026-11-17)
+
+**Decision.** The planner shows what a ground station shows during a flight
+(attitude, battery, GPS, EKF and sensor health, vibration, arming checks,
+autopilot messages, link, rangefinder, mission progress) as panels in the web
+app, next to the map and the plan. Setup stays in QGroundControl (or Mission
+Planner): parameters, calibration, firmware, radio and mode setup, tuning,
+logs. The whole app is a dockview layout: every panel can be dragged by its
+tab, stacked as tabs, resized, floated, closed and reopened, and the layout is
+saved per browser with a reset.
+
+**Why.** During a survey flight you want the plan, the track and the
+vehicle's health on one screen, from the same telemetry the planner already
+reads. Rebuilding QGC's setup screens would be a lot of work for something
+QGC already does well, and mistakes there make the drone unsafe.
+
+dockview (`dockview-core`, no framework) because the ask was tabs you can
+move around: it is an IDE-style docking layout with tab stacking, split
+resizing, floating groups and JSON save/restore built in, with no
+dependencies, TypeScript types, an MIT license and frequent releases (8.9.0
+on 2026-11-08). It needs no React, so it fits the existing vanilla
+TypeScript frontend. One wrinkle: 8.x ships its CSS only inside its UMD
+build, so `vite.config.ts` resolves `dockview-core` to that file.
+
+**Alternatives.** GridStack.js (a dashboard grid of tiles that you drag and
+resize, also vanilla and well maintained; no tab stacking, and the map and
+the long panels fit a docking layout better than a tile grid). Golden Layout
+(the classic docking library, but slow releases and a heavier API).
+FlexLayout and rc-dock (React only). A fixed layout with collapsible
+sections (simplest, but not what was asked). Embedding QGC (not possible in a
+browser; QGC is a Qt desktop app).
+
+**Revisit if** the dashboard grows commands beyond Fly and Abort (then decide
+who is in control and add confirmations), or we need layouts shared between
+people (then store them on the backend).
+See [Flight dashboard](concepts/dashboard.md).

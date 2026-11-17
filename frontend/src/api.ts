@@ -77,6 +77,62 @@ export interface Telemetry {
   source?: "sim" | "sitl";
   waypoints_reached?: number;
   waypoints_total?: number;
+  armed?: boolean;
+  autopilot_mode?: string;
+  connected?: boolean;
+  // ---- dashboard panels (both the sim and SITL send these; the sim's health values are placeholders)
+  climb_ms?: number;
+  airspeed_ms?: number;
+  throttle_pct?: number;
+  alt_msl_m?: number | null;
+  system_status?: string | null;
+  dock_distance_m?: number;
+  dock_bearing_deg?: number;
+  battery?: {
+    voltage_v: number;
+    current_a: number | null;
+    remaining_pct: number;
+    consumed_mah: number | null;
+    capacity_mah: number | null;
+    time_remaining_s: number | null;
+  };
+  gps?: { fix: string; fix_type: number; satellites: number; hdop: number | null; vdop: number | null; h_acc_m: number | null };
+  ekf?: {
+    flags_ok: boolean;
+    missing: string[];
+    const_pos_mode: boolean;
+    gps_glitching: boolean;
+    variances: Record<string, number>;
+    level: Level;
+  } | null;
+  vibration?: { x: number; y: number; z: number; clipping: [number, number, number]; level: Level } | null;
+  rangefinder?: { distance_m: number; min_m: number; max_m: number; in_range: boolean; age_s: number } | null;
+  sensors?: { name: string; enabled: boolean; healthy: boolean }[];
+  prearm?: { ok: boolean | null; reasons: string[] };
+  link?: {
+    connected: boolean;
+    endpoint: string;
+    heartbeat_age_s: number | null;
+    packet_loss_pct: number | null;
+    vehicle_drop_pct: number | null;
+    rc_rssi_pct: number | null;
+  };
+  nav?: { wp_dist_m: number | null; xtrack_m: number | null; mission_seq: number | null };
+  /** The last few log entries; GET /api/messages has the whole log. */
+  messages?: LogMessage[];
+}
+
+export type Level = "ok" | "warn" | "bad";
+
+export interface LogMessage {
+  id: number;
+  /** Unix seconds. */
+  t: number;
+  /** MAVLink MAV_SEVERITY: 0 emergency ... 4 warning, 5 notice, 6 info, 7 debug. */
+  severity: number;
+  level: string;
+  source: "vehicle" | "planner";
+  text: string;
 }
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -110,4 +166,5 @@ export const api = {
     req<{ words: string | null; error?: string; lat: number; lon: number; cached?: boolean }>("GET", `/api/w3w?i=${i}&j=${j}`),
   fly: () => req<{ ok: boolean }>("POST", "/api/fly"),
   abort: () => req<{ ok: boolean }>("POST", "/api/abort"),
+  messages: () => req<{ messages: LogMessage[] }>("GET", "/api/messages"),
 };
