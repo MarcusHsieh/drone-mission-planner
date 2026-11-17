@@ -168,6 +168,12 @@ def telemetry() -> dict:
     return sim.telemetry()
 
 
+@app.get("/api/messages")
+def messages() -> dict:
+    """The full message log (STATUSTEXT and planner events). The WebSocket only carries the last few."""
+    return {"messages": sim.msglog.all()}
+
+
 @app.websocket("/ws/telemetry")
 async def ws_telemetry(ws: WebSocket) -> None:
     await ws.accept()

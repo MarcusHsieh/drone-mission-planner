@@ -24,6 +24,14 @@ What it does:
 - **3D view**: 2D / 3D / Chase buttons tilt the map and show the drone at its
   real altitude and attitude, the planned passes at survey altitude and the
   flown track in 3D.
+- **Dashboard**: every part of the app is a panel you can drag by its tab,
+  stack as tabs, resize, float, close and reopen (**Panels** in the top
+  bar). In-flight instruments like a ground station's: attitude indicator,
+  battery (V, A, mAh used, time left), GPS (fix, satellites, HDOP), health
+  (arming checks, EKF, vibration, sensors), autopilot messages, link and the
+  downward rangefinder. The layout is saved in your browser; **Reset layout**
+  puts it back. QGroundControl stays the tool for setup and calibration. See
+  [Flight dashboard](docs/concepts/dashboard.md).
 - **Agent**: Claude (Haiku by default) with tool calls on top of the planner.
   "Survey the fairway on hole 4" pans the map, selects the fairway, fills in
   the stats and draws the path preview.
@@ -156,7 +164,8 @@ you don't need to open or set up a Linux distro.
      and `5762`.
 
    It shows the same vehicle, its mode and its mission (read the mission in
-   the GCS after Fly uploads it).
+   the GCS after Fly uploads it). The planner's own panels cover in-flight
+   monitoring; use the GCS for parameters, calibration and setup.
 
 To run the simulation five times faster than real time, set `SPEEDUP`
 first: `$env:SPEEDUP=5; docker compose -f sitl/compose.yaml up` in
@@ -184,7 +193,7 @@ image is kept in the GitHub Actions cache, so it only recompiles when
 Pass spacing assumes 15 m altitude, an 80 degree camera field of view and 70%
 sidelap (about 7.6 m between passes), flown at 5 m/s with 3 s per turn. The
 simulated battery is a straight line from 100% to 0% over 20 minutes of
-flight. All of these are placeholders until the camera, airframe and battery
+flight (a 6S pack like the airframe's, with a placeholder capacity). All of these are placeholders until the camera, airframe and battery
 are chosen.
 
 ## Course data
@@ -207,11 +216,14 @@ backend/   FastAPI app: course model, grid, grouping, planner, agent, sim, w3w c
   app/state.py     the mission draft: selection, groups, previews, route
   app/agent.py     Claude tool-use loop and tools
   app/sim.py       simulated drone and telemetry
+  app/vitals.py    message log and health checks shared by the sim and SITL
   app/mavlink_mission.py  route -> ArduPilot mission items, MAVLink mission upload
   app/sitl_drone.py       flies the route on ArduPilot SITL (FLIGHT_BACKEND=sitl)
   tools/fly_sitl.py       headless SITL flight with a pass/fail report
   tests/           pytest (the agent test uses a scripted client, no API calls)
 frontend/  Vite + TypeScript + MapLibre GL (+ three.js for the 3D view, src/view3d.ts)
+  src/layout.ts    dashboard panels (dockview): default layout, save/restore, Panels menu
+  src/panels.ts    instrument panels and message log; src/hud.ts the attitude indicator
 sitl/      ArduPilot SITL in Docker (Dockerfile, compose.yaml, start script, parameters)
 ```
 

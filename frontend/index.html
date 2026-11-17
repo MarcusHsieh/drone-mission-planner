@@ -7,52 +7,82 @@
   </head>
   <body>
     <div id="app">
-      <div id="map"></div>
-      <div id="map-help">
-        <b>Click</b> select / deselect a cell · <b>Shift+drag</b> add a box · <b>Alt+drag</b> remove a box · <b>Right-click</b> cell info and what3words
-      </div>
-      <div id="basemap-toggle">
-        <button data-basemap="satellite" class="active">Satellite</button><button data-basemap="map">Map</button>
-      </div>
-      <div id="view-toggle" title="2D: top-down map. 3D: tilted view with the drone at its real altitude (right-drag or Ctrl+drag to tilt and turn). Chase: the camera follows the drone.">
-        <button data-view="2d" class="active">2D</button><button data-view="3d">3D</button><button data-view="chase">Chase</button>
-      </div>
-      <div id="legend-3d" hidden></div>
-      <aside id="side">
-        <header>
-          <div class="title">Drone Mission Planner</div>
-          <div class="subtitle" id="course-name">Loading course…</div>
-        </header>
-
-        <section id="chat-section">
-          <h2>Agent <span class="chip" id="model-chip"></span></h2>
-          <div id="chat-log"></div>
-          <div id="suggestions"></div>
-          <form id="chat-form">
-            <input id="chat-input" autocomplete="off" placeholder="Ask the agent, e.g. survey the fairway on hole 4" />
-            <button type="submit" id="chat-send">Send</button>
-          </form>
-        </section>
-
-        <section id="groups-section">
-          <h2>Selection <span class="muted" id="totals"></span></h2>
-          <div id="groups"></div>
-          <div class="row">
-            <button id="btn-preview">Preview path</button>
-            <button id="btn-clear" class="ghost">Clear selection</button>
+      <header id="topbar">
+        <div class="title">Drone Mission Planner</div>
+        <div class="subtitle" id="course-name">Loading course…</div>
+        <div id="topbar-status"></div>
+        <div class="topbar-actions">
+          <div id="panels-menu-wrap">
+            <button id="btn-panels" class="ghost small" aria-haspopup="true" aria-expanded="false">Panels ▾</button>
+            <div id="panels-menu" hidden></div>
           </div>
-          <div id="route" class="muted small"></div>
-        </section>
+          <button id="btn-reset-layout" class="ghost small" title="Put every panel back where it starts">Reset layout</button>
+        </div>
+      </header>
+      <div id="dock"></div>
+    </div>
 
-        <section id="drone-section">
-          <h2>Drone <span class="chip warn" id="drone-chip">Simulated</span></h2>
-          <div id="drone"></div>
-          <div class="row">
-            <button id="btn-fly">Fly</button>
-            <button id="btn-abort" class="danger">Abort (return to dock)</button>
+    <!-- Panel contents. Each child is moved into a dashboard panel at startup
+         and back here while its panel is closed, so its state and listeners survive. -->
+    <div id="panel-store" hidden>
+      <div data-panel="map" class="panel-body map-panel">
+        <div id="map"></div>
+        <div id="map-help">
+          <b>Click</b> select / deselect a cell · <b>Shift+drag</b> add a box · <b>Alt+drag</b> remove a box · <b>Right-click</b> cell info and what3words
+        </div>
+        <div class="map-toggles">
+          <div id="basemap-toggle">
+            <button data-basemap="satellite" class="active">Satellite</button><button data-basemap="map">Map</button>
           </div>
-        </section>
-      </aside>
+          <div id="view-toggle" title="2D: top-down map. 3D: tilted view with the drone at its real altitude (right-drag or Ctrl+drag to tilt and turn). Chase: the camera follows the drone.">
+            <button data-view="2d" class="active">2D</button><button data-view="3d">3D</button><button data-view="chase">Chase</button>
+          </div>
+        </div>
+        <div id="legend-3d" hidden></div>
+      </div>
+
+      <div data-panel="agent" class="panel-body pad" id="chat-section">
+        <div class="panel-sub">Model <span class="chip" id="model-chip"></span></div>
+        <div id="chat-log"></div>
+        <div id="suggestions"></div>
+        <form id="chat-form">
+          <input id="chat-input" autocomplete="off" placeholder="Ask the agent, e.g. survey the fairway on hole 4" />
+          <button type="submit" id="chat-send">Send</button>
+        </form>
+      </div>
+
+      <div data-panel="selection" class="panel-body pad">
+        <div class="panel-sub muted" id="totals"></div>
+        <div id="groups"></div>
+        <div class="row">
+          <button id="btn-preview">Preview path</button>
+          <button id="btn-clear" class="ghost">Clear selection</button>
+        </div>
+        <div id="route" class="muted small"></div>
+      </div>
+
+      <div data-panel="flight" class="panel-body pad">
+        <div class="panel-sub"><span class="chip warn" id="drone-chip">Simulated</span></div>
+        <div id="drone"></div>
+        <div class="row">
+          <button id="btn-fly">Fly</button>
+          <button id="btn-abort" class="danger">Abort (return to dock)</button>
+        </div>
+      </div>
+
+      <div data-panel="hud" class="panel-body hud-panel"><canvas id="hud"></canvas></div>
+      <div data-panel="battery" class="panel-body pad" id="battery-panel"></div>
+      <div data-panel="gps" class="panel-body pad" id="gps-panel"></div>
+      <div data-panel="health" class="panel-body pad" id="health-panel"></div>
+      <div data-panel="messages" class="panel-body messages-panel">
+        <div class="messages-tools">
+          <label><input type="checkbox" id="msg-only-warn" /> Warnings and worse</label>
+          <button id="btn-msg-clear" class="ghost small" title="Hide the messages so far (the backend keeps them)">Clear</button>
+        </div>
+        <div id="messages-log"></div>
+      </div>
+      <div data-panel="link" class="panel-body pad" id="link-panel"></div>
+      <div data-panel="rangefinder" class="panel-body pad" id="rangefinder-panel"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
