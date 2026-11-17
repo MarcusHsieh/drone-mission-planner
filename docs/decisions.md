@@ -188,7 +188,32 @@ model is smoothed between updates.
 earns its setup), or the site has real elevation changes (then add a terrain
 source).
 
-## D8. An in-flight dashboard in the web app, QGC for setup
+## D8. Google photorealistic 3D tiles, with OSM boxes as the fallback
+
+**Status:** accepted (2026-11-17)
+
+**Decision.** With `GOOGLE_MAPS_API_KEY` set, the 3D view loads Google
+Photorealistic 3D Tiles (with 3d-tiles-renderer, in the same three.js scene
+as the drone). OSM building footprints, extruded, show first and stay when
+there is no key or Google fails. One Google session per page load, opened
+only when a 3D view is first shown. No tile caching beyond the browser's.
+
+**Why.** On a golf course the obstacles at survey altitude are trees, and
+only the photorealistic mesh has them. OSM boxes cost nothing and need no
+key, so the 3D view always has something. Billing is per session, not per
+tile, so loading tiles only near the route would not save money and would
+leave the scene patchy.
+
+**Limits.** Google's terms forbid storing tiles and extracting data from
+them, so the demo needs a network connection for the mesh, and clearances
+must not be computed from it. The OSM heights are mostly estimates.
+
+**Alternatives.** OSM boxes only (free, but no trees). Cesium ion or
+CesiumJS (another renderer next to MapLibre). A course model built from
+USGS 3DEP LiDAR (allowed to measure, would support automatic tree-clearance
+checks; more work, a good next step if clearance matters).
+
+## D9. An in-flight dashboard in the web app, QGC for setup
 
 **Status:** accepted (2026-11-17)
 

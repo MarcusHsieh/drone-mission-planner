@@ -23,7 +23,8 @@ What it does:
   with length and time estimates.
 - **3D view**: 2D / 3D / Chase buttons tilt the map and show the drone at its
   real altitude and attitude, the planned passes at survey altitude and the
-  flown track in 3D.
+  flown track in 3D, over OSM building boxes or, with a Google key, Google's
+  photorealistic 3D buildings and trees.
 - **Dashboard**: every part of the app is a panel you can drag by its tab,
   stack as tabs, resize, float, close and reopen (**Panels** in the top
   bar). In-flight instruments like a ground station's: attitude indicator,
@@ -86,6 +87,7 @@ For frontend development with hot reload, run the backend as above and
 | `AGENT_MODEL` | `claude-haiku-5-5` | The one place the model is set. Try `claude-sonnet-5-5` if Haiku picks the wrong tool. |
 | `AGENT_EFFORT` | `medium` | `low` is faster and cheaper, `high` is more careful. |
 | `W3W_API_KEY` | (none) | Optional. Without it the cell popup says what3words is not configured. |
+| `GOOGLE_MAPS_API_KEY` | (none) | Optional. Google photorealistic 3D buildings and trees in the 3D view. Without it the 3D view shows OSM building boxes. See [3D buildings and trees](docs/concepts/sitl.md#3d-buildings-and-trees). |
 | `SIM_SPEEDUP` | `5` | Simulated flight speed relative to real time (built-in sim only). |
 | `FLIGHT_BACKEND` | `sim` | `sim` for the built-in sim, `sitl` to fly on ArduPilot SITL. |
 | `SITL_CONNECTION` | `tcp:127.0.0.1:5760` | Where SITL's MAVLink port is (only with `FLIGHT_BACKEND=sitl`). |

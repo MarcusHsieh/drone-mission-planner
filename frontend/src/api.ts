@@ -18,6 +18,8 @@ export interface CourseInfo {
   features: GeoJSON.FeatureCollection;
   agent: { model: string; configured: boolean };
   w3w_configured: boolean;
+  /** Google Map Tiles API key for photorealistic 3D, or null. */
+  google_3d_key: string | null;
 }
 
 export interface Group {
@@ -164,6 +166,7 @@ export const api = {
   chatReset: () => req<{ ok: boolean }>("POST", "/api/agent/reset"),
   w3w: (i: number, j: number) =>
     req<{ words: string | null; error?: string; lat: number; lon: number; cached?: boolean }>("GET", `/api/w3w?i=${i}&j=${j}`),
+  buildings: () => req<GeoJSON.FeatureCollection & { source: string; error: string | null }>("GET", "/api/buildings"),
   fly: () => req<{ ok: boolean }>("POST", "/api/fly"),
   abort: () => req<{ ok: boolean }>("POST", "/api/abort"),
   messages: () => req<{ messages: LogMessage[] }>("GET", "/api/messages"),

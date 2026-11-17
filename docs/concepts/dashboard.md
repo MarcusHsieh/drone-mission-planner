@@ -94,13 +94,13 @@ What the panels mean:
   setup, motor tests, log download and tuning are not in the web app and
   shouldn't be: QGC and Mission Planner do them well, and a mistake there can
   make the drone unsafe. Connect QGC on port 5762 next to the planner (see the
-  main README). See [D8](../decisions.md#d8-an-in-flight-dashboard-in-the-web-app-qgc-for-setup).
+  main README). See [D9](../decisions.md#d9-an-in-flight-dashboard-in-the-web-app-qgc-for-setup).
 - **The only commands are Fly and Abort (RTL).** There is no takeoff, land,
   change mode, pause or go-to button yet. Adding them is easy over MAVLink,
   but each one is a way to send a wrong command to a real drone, so they
   should come with confirmation and a decision about who is in control (the
   RC pilot always wins).
-- **dockview for the layout.** See D8 for why.
+- **dockview for the layout.** See D9 for why.
 - **The built-in sim's health values are placeholders.** It has no sensor
   model, so its EKF, vibration, sensors and link always look healthy, and the
   panels say so. Battery and rangefinder follow its simple models. Use SITL to

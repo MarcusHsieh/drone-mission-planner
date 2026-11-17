@@ -70,3 +70,18 @@ def test_telemetry_has_dashboard_fields(monkeypatch):
         assert "Armed" in texts and "Disarmed" in texts and "Mode AUTO" in texts
         ids = [m["id"] for m in log]
         assert ids == sorted(ids) and len(set(ids)) == len(ids)
+
+
+def test_building_heights():
+    from app.buildings import height_of, to_geojson
+
+    assert height_of({"building": "house"}) == (6.0, 0.0)
+    assert height_of({"building": "yes", "building:levels": "2"}) == (7.0, 0.0)
+    assert height_of({"building": "yes", "height": "12 m"}) == (12.0, 0.0)
+    assert abs(height_of({"height": "30 ft"})[0] - 9.144) < 1e-6
+    fc = to_geojson({"elements": [
+        {"type": "way", "id": 1, "tags": {"building": "house"}, "geometry": [{"lon": 0, "lat": 0}, {"lon": 1, "lat": 0}, {"lon": 1, "lat": 1}, {"lon": 0, "lat": 0}]},
+        {"type": "way", "id": 2, "tags": {"building": "yes"}, "geometry": [{"lon": 0, "lat": 0}, {"lon": 1, "lat": 0}]},
+    ]})  # fmt: skip
+    assert [f["properties"]["osm_way"] for f in fc["features"]] == [1]
+    assert fc["features"][0]["properties"]["height"] == 6.0

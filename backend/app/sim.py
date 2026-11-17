@@ -38,6 +38,7 @@ class DroneSim:
         self.frame = frame
         self.subscribers: set[asyncio.Queue] = set()
         self.task: asyncio.Task | None = None
+        self._idle: asyncio.Task | None = None
         self.abort_requested = False
         self.msglog = vitals.MessageLog()
         self.msglog.add("Built-in simulator ready (health values are placeholders)", vitals.INFO, "planner")
@@ -59,7 +60,16 @@ class DroneSim:
         self.message = "On dock, charged"
 
     async def on_startup(self) -> None:
-        """Nothing to start: the sim publishes from its own flight task."""
+        """Keep publishing while docked (the flight task publishes in flight),
+        so the dashboard can tell a quiet sim from a dead connection."""
+        if getattr(self, "_idle", None) is None or self._idle.done():
+            self._idle = asyncio.create_task(self._idle_loop())
+
+    async def _idle_loop(self) -> None:
+        while True:
+            if not self.flying:
+                await self.publish()
+            await asyncio.sleep(0.5)
 
     @property
     def flying(self) -> bool:

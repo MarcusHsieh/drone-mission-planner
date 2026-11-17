@@ -541,6 +541,73 @@ function setView(mode: ViewMode) {
     }
   }
   $("#legend-3d").hidden = mode === "2d";
+  setup3dWorld(mode !== "2d");
+  map.triggerRepaint();
+}
+
+// ---------------------------------------------------------------- 3D buildings
+// OSM building boxes show first (free, instant). With a Google key, the
+// photorealistic tiles load on top and the boxes fade out once they are in;
+// if Google fails, the boxes stay. Nothing 3D is fetched until the first
+// switch to 3D or Chase.
+const GROUND_OVERLAYS = ["fairway-fill", "fairway-line", "green-line", "tee-line", "bunker-line", "water-line", "hole-line",
+  "cells-fill", "cells-outline", "route-transit", "path-casing", "path", "trail"];
+let buildingsRequested = false;
+let photorealNote = "";
+let attributionTimer = 0;
+
+function setup3dWorld(on: boolean) {
+  if (on && !buildingsRequested) {
+    buildingsRequested = true;
+    api.buildings().then((fc) => {
+      map.addSource("buildings", { type: "geojson", data: fc });
+      map.addLayer({
+        id: "buildings", type: "fill-extrusion", source: "buildings",
+        layout: { visibility: viewMode === "2d" ? "none" : "visible" },
+        paint: {
+          "fill-extrusion-color": "#cbd5e1",
+          "fill-extrusion-height": ["get", "height"],
+          "fill-extrusion-base": ["get", "min_height"],
+          "fill-extrusion-opacity": flight3d.photoreal?.status === "ready" ? 0 : 0.85,
+          "fill-extrusion-opacity-transition": { duration: 1200, delay: 0 },
+        },
+      }, "flight-3d");
+      if (fc.error) toast(fc.error);
+    }).catch((e) => toast(`Buildings: ${(e as Error).message}`));
+  }
+  if (on && course.google_3d_key && !flight3d.photoreal) {
+    const pr = flight3d.enablePhotoreal(course.google_3d_key);
+    pr.onStatus = (s) => {
+      photorealNote = s === "failed" ? pr.error : "";
+      if (s === "failed") toast(pr.error);
+      applyWorldLayers();
+      updateLegend();
+    };
+  }
+  flight3d.photorealOn = on;
+  applyWorldLayers();
+}
+
+/** Which of boxes, photoreal and the flat 2D overlays show, for the current view and photoreal state. */
+function applyWorldLayers() {
+  const threeD = viewMode !== "2d";
+  const real = threeD && flight3d.photoreal?.status === "ready";
+  if (map.getLayer("buildings")) {
+    map.setLayoutProperty("buildings", "visibility", threeD ? "visible" : "none");
+    map.setPaintProperty("buildings", "fill-extrusion-opacity", real ? 0 : 0.85);
+  }
+  // Flat overlays would be painted across the mesh's trees and roofs; the 3D
+  // route and track carry the plan there.
+  for (const id of GROUND_OVERLAYS) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", real ? "none" : "visible");
+  $("#map").classList.toggle("photoreal", real);
+  const attr = $("#google-attribution");
+  attr.hidden = !real;
+  clearInterval(attributionTimer);
+  if (real) {
+    const tick = () => (attr.querySelector("span")!.textContent = flight3d.photoreal!.attribution());
+    tick();
+    attributionTimer = window.setInterval(tick, 1000);
+  }
   map.triggerRepaint();
 }
 
@@ -548,8 +615,10 @@ function updateLegend() {
   if (viewMode === "2d" || !flight3d) return;
   const alt = state?.assumptions.altitude_m ?? 15;
   const x = flight3d.enlarge;
-  $("#legend-3d").innerHTML = `<b>3D view</b> · altitudes to scale, ground flat at the dock<br>
+  const real = flight3d.photoreal?.status === "ready";
+  $("#legend-3d").innerHTML = `<b>3D view</b> · altitudes to scale${real ? "" : ", ground flat at the dock"}<br>
     <span class="key white"></span>flown track (from telemetry) · <span class="key cyan"></span>planned passes at ${alt} m<br>
+    ${flight3d.photoreal?.status === "ready" ? "Google photorealistic 3D, ground set to the dock's height" : flight3d.photoreal?.status === "loading" ? "Loading Google photorealistic 3D… (OSM building boxes meanwhile)" : "Buildings: OSM footprints, heights estimated"}${photorealNote ? ` <span class="err">${esc(photorealNote)}</span>` : ""}<br>
     <span class="muted">Drone and dock drawn ${x > 1.5 ? `${Math.round(x)}× real size so they stay visible` : "at real size"}. Right-drag or Ctrl+drag to tilt and turn.</span>`;
 }
 

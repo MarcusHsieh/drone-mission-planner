@@ -119,6 +119,66 @@ What is real and what is drawn:
   says by how much. The dock is a pad with the two side bars that center the
   drone on its charging contacts.
 
+## 3D buildings and trees
+
+The 3D view puts the course's surroundings under the flight, in two layers:
+
+1. **OSM building boxes** (always, free). Building footprints from
+   OpenStreetMap, extruded to their `height` tag, or `building:levels` x 3 m
+   + 1 m, or a guess by building type (a house is 6 m). They show at once.
+2. **Google Photorealistic 3D Tiles** (with `GOOGLE_MAPS_API_KEY`). The
+   textured mesh of the real houses, clubhouse and trees. They stream in on
+   top, and the boxes fade out once they have loaded. If Google fails (bad
+   key, quota, no network), the boxes stay and the legend says why.
+
+The drone, route and track are drawn in the same 3D scene, so a house or a
+tree in front of the drone hides it, and a pass that goes through a tree
+shows it.
+
+**Setting up the key.** In Google Cloud: create a project with billing on,
+enable the **Map Tiles API**, create an API key, and restrict it to the Map
+Tiles API and to the referrers `http://localhost:8000/*` and
+`http://localhost:5173/*`. Put it in `backend/.env` as
+`GOOGLE_MAPS_API_KEY=...`. The key is sent to the browser (the tiles are
+fetched from there), which is why the restrictions matter. To cap the cost,
+lower the Map Tiles API quota for root tileset requests per day (Cloud
+Console > Map Tiles API > Quotas), for example to 50.
+
+**Cost.** Google bills a session: one root tileset request, which allows
+3 hours of tile requests. The first 1,000 a month are free, then $6 per
+1,000 (November 2026 price list). The app opens one session per page load,
+and only on the first switch to 3D or Chase; the 2D view never contacts
+Google. Limiting tiles to the area around the route would not lower the
+bill, because tiles inside a session are not billed.
+
+**No tile cache.** Google's terms allow only the browser's normal HTTP cache,
+which follows the expiry headers Google sends. We don't store or pre-fetch
+tiles, so the demo needs a network connection for the photorealistic layer.
+
+**Look, don't measure.** The terms also forbid extracting data from the
+tiles (object detection, deriving 3D models). The mesh is for looking at:
+it can show that a pass runs into a tree, but the planner must not compute
+clearances from it. For automated obstacle checks, use public LiDAR (USGS
+3DEP) instead.
+
+**Height.** Google's mesh has real ground heights. We measure the mesh's
+ground under the dock and shift the mesh so that point is at 0 m, which is
+where the mission's altitudes start. Elsewhere on the course the ground can
+be above or below the dock, so the drone's height over the local ground
+differs from its altitude by that much, as it does in the real flight.
+
+**OSM data.** The backend gets the buildings once from the Overpass API and
+caches them in `backend/var/osm_buildings.json`. To make that a committed
+snapshot, so the demo doesn't depend on Overpass, run
+`uv run python -m tools.fetch_buildings` and commit
+`backend/app/data/osm_buildings.json`.
+
+| What | Where |
+| --- | --- |
+| OSM buildings (fetch, heights, cache) | [`backend/app/buildings.py`](../../backend/app/buildings.py), [`backend/tools/fetch_buildings.py`](../../backend/tools/fetch_buildings.py) |
+| Google tiles: session, placement at the dock, level-of-detail camera | [`frontend/src/photoreal.ts`](../../frontend/src/photoreal.ts) |
+| Boxes vs mesh, attribution | [`frontend/src/main.ts`](../../frontend/src/main.ts) (`setup3dWorld`, `applyWorldLayers`) |
+
 ## Background
 
 **ArduPilot** is open-source autopilot firmware. **SITL** (software in the
