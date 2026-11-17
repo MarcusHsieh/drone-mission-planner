@@ -78,6 +78,47 @@ and the drone is drawn on the planner's own map. A ground control station
 (QGroundControl or Mission Planner) can connect to TCP port 5762 at the same
 time to show the same flight in a standard autopilot view.
 
+## 3D view
+
+The **2D / 3D / Chase** buttons under the basemap toggle switch how the
+flight is shown. They work for both flight backends.
+
+- **3D** tilts the map toward the route. The quad flies at its reported
+  altitude and attitude, the planned passes hang at survey altitude in their
+  group color, and the flown track is a white line with a faint curtain down
+  to the ground, so climbs, the survey altitude and the landing read at a
+  glance. Right-drag (or Ctrl+drag) tilts and turns the camera.
+- **Chase** keeps the drone in the middle of the screen and turns slowly to
+  look along its heading. Dragging the map drops back to 3D.
+- **2D** is the top-down planning view, with the grid.
+
+![Hole 2 flown on ArduPilot SITL, in the 3D view after landing](../img/sitl-3d-hole-2.png)
+
+![The chase camera on the way back to the dock](../img/sitl-chase-hole-2.png)
+
+*Hole 2 flown on ArduPilot SITL from the Fly button (10 of 10 waypoints,
+landed on the dock). The cloud test machine has no satellite tiles, so the
+ground is plain; on a normal connection it is the satellite image.*
+
+| What | Where |
+| --- | --- |
+| Quad model, dock, 3D route and track (three.js in a MapLibre custom layer) | [`frontend/src/view3d.ts`](../../frontend/src/view3d.ts) (`Flight3D`) |
+| View toggle, chase camera, legend | [`frontend/src/main.ts`](../../frontend/src/main.ts) (`setView`, `chaseCamera`) |
+| Roll and pitch in telemetry (from MAVLink `ATTITUDE`) | [`backend/app/sitl_drone.py`](../../backend/app/sitl_drone.py) |
+
+What is real and what is drawn:
+
+- Position, altitude, heading, roll and pitch come from the autopilot's
+  telemetry at 5 Hz and are smoothed between updates. The built-in sim
+  reports a fixed 5 degree nose-down pitch while cruising and no roll.
+- The ground is flat at the dock's height. Mission altitudes are relative to
+  the dock too, so the picture matches what the autopilot flies, but it
+  doesn't show real terrain.
+- The model is a generic X quad about 0.5 m across. Zoomed out, it and the
+  dock are drawn larger (up to 20 times) so they stay visible; the legend
+  says by how much. The dock is a pad with the two side bars that center the
+  drone on its charging contacts.
+
 ## Background
 
 **ArduPilot** is open-source autopilot firmware. **SITL** (software in the
@@ -102,13 +143,16 @@ commands from the ground station one at a time.
 
 ## Our choices and limits
 
-- **SITL runs headless, and the visual is the planner's map.** We don't run
-  Gazebo or another 3D simulator. The planner's map shows the planned passes
-  and the autopilot's actual track on top of each other, which is what the
-  demo is about, and a ground station on port 5762 adds the standard
-  autopilot view. Gazebo would need a Linux GUI (WSLg on Windows), a GPU, and
-  much more setup, for a nicer picture of a generic quad. See
-  [decision D6](../decisions.md#d6-run-sitl-headless-in-docker-and-show-it-on-the-planners-map).
+- **SITL runs headless, and the visual is the planner's map, in 2D or 3D.**
+  We don't run Gazebo or another 3D simulator. The **3D** and **Chase**
+  buttons tilt the planner's map and draw the quad at its real altitude,
+  heading, roll and pitch, with the planned passes at survey altitude and the
+  flown track in 3D (see [3D view](#3d-view) below). A ground station on port
+  5762 adds the standard autopilot view. Gazebo would need a Linux GUI (WSLg
+  or noVNC on Windows), GPU or slow software rendering, and a model of the
+  course, for a picture of the same generic quad. See decisions
+  [D6](../decisions.md#d6-run-sitl-headless-in-docker-and-show-it-on-the-planners-map) and
+  [D7](../decisions.md#d7-show-flights-in-3d-on-the-planners-map-not-in-gazebo).
 - **Copter needs `MISSION_START` to take off in AUTO.** On the ground,
   switching to AUTO waits for the pilot to raise the throttle. We arm in
   GUIDED, switch to AUTO and send `MISSION_START`, which starts the mission

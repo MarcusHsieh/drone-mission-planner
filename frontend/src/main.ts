@@ -3,6 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import "./style.css";
 import { api, AgentReply, CourseInfo, Group, MissionState, Telemetry } from "./api";
 import { LocalFrame } from "./geo";
+import { Flight3D } from "./view3d";
 
 // Distinct, readable on satellite imagery.
 const PALETTE = ["#22d3ee", "#f472b6", "#facc15", "#a78bfa", "#fb923c", "#4ade80", "#60a5fa", "#f87171"];
@@ -28,6 +29,9 @@ let frame: LocalFrame;
 let map: MLMap;
 let state: MissionState | null = null;
 let flying = false;
+let flight3d: Flight3D;
+type ViewMode = "2d" | "3d" | "chase";
+let viewMode: ViewMode = "2d";
 
 // ---------------------------------------------------------------- map setup
 function emptyFC(): GeoJSON.FeatureCollection {
@@ -40,6 +44,9 @@ function buildMap() {
     center: [course.dock.lon, course.dock.lat],
     zoom: 16.3,
     maxZoom: 21,
+    maxPitch: 75,
+    // No terrain: keep the camera center free so the chase camera can look at the drone in the air.
+    centerClampedToGround: false,
     boxZoom: false,
     doubleClickZoom: false,
     style: {
@@ -66,12 +73,15 @@ function buildMap() {
       ],
     },
   });
-  map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "top-left");
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-left");
   map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
   map.on("load", () => {
     addCourseLayers();
     addDynamicLayers();
     addMarkers();
+    flight3d = new Flight3D(frame);
+    flight3d.onPose = chaseCamera;
+    map.addLayer(flight3d);
     map.fitBounds(courseBounds(), { padding: 40, duration: 0 });
     updateGrid();
     if (state) renderState(state);
@@ -159,7 +169,8 @@ function addMarkers() {
 function updateGrid() {
   const src = map.getSource("grid") as GeoJSONSource | undefined;
   if (!src) return;
-  if (map.getZoom() < 17.3) {
+  // Tilted, the grid runs to the horizon as noise; it's only for picking cells top-down.
+  if (map.getZoom() < 17.3 || map.getPitch() > 15) {
     src.setData(emptyFC());
     return;
   }
@@ -197,6 +208,11 @@ function renderState(s: MissionState) {
     if (s.route) routeFeatures.unshift({ type: "Feature", properties: { kind: "route" }, geometry: { type: "LineString", coordinates: s.route.path } });
     (map.getSource("cells") as GeoJSONSource).setData({ type: "FeatureCollection", features: cellFeatures });
     (map.getSource("route") as GeoJSONSource).setData({ type: "FeatureCollection", features: routeFeatures });
+    flight3d?.setRoute(
+      s.route?.path ?? null,
+      s.groups.filter((g) => g.path).map((g) => ({ color: groupColor(g.id), path: g.path! })),
+      s.assumptions.altitude_m,
+    );
   }
   renderGroups(s);
 }
@@ -242,7 +258,8 @@ function groupCard(g: Group): string {
 }
 
 function focus(bounds: [number, number, number, number]) {
-  map.fitBounds([[bounds[0], bounds[1]], [bounds[2], bounds[3]]], { padding: 70, duration: 1400, maxZoom: 19 });
+  if (viewMode === "chase") setView("3d");
+  map.fitBounds([[bounds[0], bounds[1]], [bounds[2], bounds[3]]], { padding: 70, duration: 1400, maxZoom: 19, pitch: map.getPitch(), bearing: map.getBearing() });
 }
 
 // ---------------------------------------------------------------- selection by hand
@@ -425,9 +442,13 @@ function renderTelemetry(t: Telemetry) {
   chip.textContent = t.source === "sitl" ? "ArduPilot SITL" : "Simulated";
   chip.title = t.source === "sitl" ? "Flown by ArduPilot SITL over MAVLink" : "Built-in simulated drone";
   if (!map || !droneMarker) return;
+  flight3d?.update(t);
   if (flying) {
     if (!wasFlying) trail.length = 0;
-    droneMarker.setLngLat([t.lon, t.lat]).setRotation(t.heading_deg).addTo(map);
+    droneMarker.setLngLat([t.lon, t.lat]).setRotation(t.heading_deg);
+    // In 3D the model is the drone; the flat arrow would sit on the ground under it.
+    if (viewMode === "2d") droneMarker.addTo(map);
+    else droneMarker.remove();
     trail.push([t.lon, t.lat]);
     (map.getSource("trail") as GeoJSONSource | undefined)?.setData({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: trail } });
   } else {
@@ -462,7 +483,7 @@ function setupButtons() {
   $("#btn-fly").addEventListener("click", async () => {
     try {
       await api.fly();
-      if (state?.route) focus(boundsOf(state.route.path));
+      if (state?.route && viewMode !== "chase") focus(boundsOf(state.route.path));
     } catch (e) {
       toast((e as Error).message);
     }
@@ -476,6 +497,81 @@ function setupButtons() {
       document.querySelectorAll("#basemap-toggle button").forEach((x) => x.classList.toggle("active", x === b));
     }),
   );
+}
+
+// ---------------------------------------------------------------- 2D / 3D / chase views
+let chaseBearing = 0;
+let chaseQueued = false;
+let chaseLast = 0;
+
+function setView(mode: ViewMode) {
+  viewMode = mode;
+  document.querySelectorAll<HTMLButtonElement>("#view-toggle button").forEach((x) => x.classList.toggle("active", x.dataset.view === mode));
+  flight3d.follow = mode === "chase";
+  // MapLibre draws HTML markers at the camera center's height, which the chase
+  // camera lifts to the drone's altitude; hide them there (the 3D dock stays).
+  $("#map").classList.toggle("chase", mode === "chase");
+  if (mode === "2d") {
+    map.easeTo({ pitch: 0, bearing: 0, elevation: 0, duration: 900 });
+    if (flying) droneMarker.addTo(map);
+  } else {
+    droneMarker.remove();
+    if (mode === "3d") {
+      const b = state?.route ? boundsOf(state.route.path) : null;
+      const bearing = map.getBearing() || -20;
+      map.setCenterElevation(0);
+      if (b) map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 90, pitch: 60, bearing, maxZoom: 19, duration: 1200 });
+      else map.easeTo({ pitch: 60, bearing, duration: 900 });
+    }
+    else {
+      chaseBearing = map.getBearing();
+      chaseLast = performance.now();
+      map.easeTo({ pitch: 68, zoom: Math.max(map.getZoom(), 19.2), duration: 900 });
+    }
+  }
+  $("#legend-3d").hidden = mode === "2d";
+  map.triggerRepaint();
+}
+
+function updateLegend() {
+  if (viewMode === "2d" || !flight3d) return;
+  const alt = state?.assumptions.altitude_m ?? 15;
+  const x = flight3d.enlarge;
+  $("#legend-3d").innerHTML = `<b>3D view</b> · altitudes to scale, ground flat at the dock<br>
+    <span class="key white"></span>flown track (from telemetry) · <span class="key cyan"></span>planned passes at ${alt} m<br>
+    <span class="muted">Drone and dock drawn ${x > 1.5 ? `${Math.round(x)}× real size so they stay visible` : "at real size"}. Right-drag or Ctrl+drag to tilt and turn.</span>`;
+}
+
+/** Chase camera: keep the drone centered, swing slowly to look along its heading. */
+function chaseCamera(lon: number, lat: number, alt: number, headingDeg: number) {
+  if (chaseQueued || map.isEasing()) return;
+  chaseQueued = true;
+  requestAnimationFrame(() => {
+    chaseQueued = false;
+    if (viewMode !== "chase") return;
+    // Turn toward the heading with a ~1.5 s lag so 180 degree turns at the end of a pass swing smoothly.
+    const now = performance.now();
+    const dt = Math.min(0.2, (now - chaseLast) / 1000);
+    chaseLast = now;
+    const d = ((headingDeg - chaseBearing + 540) % 360) - 180;
+    chaseBearing += d * (1 - Math.exp(-dt / 1.5));
+    map.jumpTo({ center: [lon, lat], elevation: alt, bearing: chaseBearing });
+  });
+}
+
+function setupViews() {
+  document.querySelectorAll<HTMLButtonElement>("#view-toggle button").forEach((b) =>
+    b.addEventListener("click", () => {
+      setView(b.dataset.view as ViewMode);
+      setTimeout(updateLegend, 1300);
+    }),
+  );
+  map.on("zoomend", updateLegend);
+  map.on("pitchend", updateLegend);
+  // Dragging the map by hand ends the chase and leaves you in free 3D.
+  map.on("dragstart", (e) => {
+    if (viewMode === "chase" && (e as { originalEvent?: Event }).originalEvent) setView("3d");
+  });
 }
 
 function boundsOf(pts: [number, number][]): [number, number, number, number] {
@@ -506,6 +602,7 @@ async function boot() {
   setupSelection();
   setupChat();
   setupButtons();
+  setupViews();
   renderState(await api.state());
   connectTelemetry();
 }

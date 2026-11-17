@@ -148,3 +148,42 @@ SITL build and home location, so it isn't the same setup as the test).
 **Revisit if** we need a camera or sensor simulation (then Gazebo), or once
 the real airframe has its own SITL model.
 See [ArduPilot SITL and MAVLink missions](concepts/sitl.md).
+
+**Update (2026-11-17).** The 3D view came from the planner's map instead of
+a simulator: see [D7](#d7-show-flights-in-3d-on-the-planners-map-not-in-gazebo).
+
+## D7. Show flights in 3D on the planner's map, not in Gazebo
+
+**Status:** accepted (2026-11-17)
+
+**Decision.** The 3D view of a flight is drawn in the browser, inside the
+planner's existing MapLibre map, with three.js: a quad model at its real
+altitude and attitude, the planned passes at survey altitude, the flown
+track in 3D, and the dock pad. It is driven only by the telemetry WebSocket,
+so it works the same for the built-in sim and for ArduPilot SITL. A 2D / 3D /
+Chase toggle switches views. SITL stays headless.
+
+**Why.** It needs nothing new on Windows: no X server, WSLg, GPU passthrough
+or second container, just the browser the demo already uses. It sits on the
+satellite imagery of the actual course, next to the selection and the plan,
+which is what a viewer wants to see. Gazebo would fly the same generic quad
+over an empty world unless we built a course model, and its physics wouldn't
+be used (SITL flies its own). The model is only a picture: everything it shows
+comes from the autopilot's telemetry (position, altitude, heading, roll and
+pitch from `ATTITUDE`).
+
+**Alternatives.** Gazebo Harmonic with `ardupilot_gazebo` in Docker, shown
+through noVNC or Gazebo's web viewer (software rendering in a container is
+slow, the image is several GB, and the plugin build is one more thing to keep
+working; the world would still need the course). QGroundControl's or
+Mission Planner's map (2D, fine as a second screen). Cesium with 3D terrain
+(heavier, and terrain under a flat golf course adds little).
+
+**Limits.** Ground is flat at the dock's height (no terrain), so altitudes
+are relative to the dock, as the mission's are. The drone and dock are drawn
+enlarged when zoomed out (the legend says how much). Telemetry is 5 Hz, so the
+model is smoothed between updates.
+
+**Revisit if** we add camera simulation or obstacle avoidance (then Gazebo
+earns its setup), or the site has real elevation changes (then add a terrain
+source).
