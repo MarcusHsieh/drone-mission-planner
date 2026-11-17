@@ -62,7 +62,7 @@ class SitlDrone:
         self.abort_requested = False
         self.statustext: list[str] = []
         self.v: dict[str, Any] = {
-            "lat": frame.lat0, "lon": frame.lon0, "alt": 0.0, "heading": 0, "speed": 0.0,
+            "lat": frame.lat0, "lon": frame.lon0, "alt": 0.0, "heading": 0, "speed": 0.0, "roll": 0.0, "pitch": 0.0,
             "battery": 100.0, "voltage": 0.0, "fix": 0, "sats": 0, "ap_mode": "UNKNOWN",
             "armed": False, "mission_seq": 0, "boot_ms": 0,
         }  # fmt: skip
@@ -118,6 +118,8 @@ class SitlDrone:
             "lon": v["lon"],
             "alt_m": round(v["alt"], 1),
             "heading_deg": round(v["heading"]) % 360,
+            "roll_deg": round(v["roll"], 1),
+            "pitch_deg": round(v["pitch"], 1),
             "groundspeed_ms": round(v["speed"], 1),
             "battery_pct": round(v["battery"], 1),
             "voltage_v": round(v["voltage"], 2),
@@ -211,6 +213,8 @@ class SitlDrone:
                 if self.track:
                     self.flown_m += math.dist(p, self.track[-1])
                 self.track.append(p)
+        elif t == "ATTITUDE":
+            v["roll"], v["pitch"] = math.degrees(msg.roll), math.degrees(msg.pitch)
         elif t == "VFR_HUD":
             v["speed"] = msg.groundspeed
         elif t == "SYS_STATUS":

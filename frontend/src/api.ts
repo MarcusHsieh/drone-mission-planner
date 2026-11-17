@@ -58,6 +58,9 @@ export interface Telemetry {
   lon: number;
   alt_m: number;
   heading_deg: number;
+  /** Attitude in degrees: roll right side down positive, pitch nose up positive. */
+  roll_deg?: number;
+  pitch_deg?: number;
   groundspeed_ms: number;
   battery_pct: number;
   voltage_v: number;

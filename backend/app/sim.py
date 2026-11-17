@@ -62,6 +62,9 @@ class DroneSim:
             "lon": lon,
             "alt_m": round(self.alt, 1),
             "heading_deg": round(self.heading % 360),
+            "roll_deg": 0.0,
+            # A multirotor leans into its direction of travel; about 5 degrees at cruise.
+            "pitch_deg": -5.0 if self.speed > 0 else 0.0,
             "groundspeed_ms": round(self.speed, 1),
             "battery_pct": round(pct, 1),
             "voltage_v": round(V_EMPTY + (V_FULL - V_EMPTY) * pct / 100, 2),

@@ -21,6 +21,9 @@ What it does:
   the rough, the sweep angle is searched, and pieces and groups are ordered
   (nearest neighbor plus 2-opt) for a short route from the dock and back,
   with length and time estimates.
+- **3D view**: 2D / 3D / Chase buttons tilt the map and show the drone at its
+  real altitude and attitude, the planned passes at survey altitude and the
+  flown track in 3D.
 - **Agent**: Claude (Haiku by default) with tool calls on top of the planner.
   "Survey the fairway on hole 4" pans the map, selects the fairway, fills in
   the stats and draws the path preview.
@@ -136,6 +139,12 @@ you don't need to open or set up a Linux distro.
    the passes and lands on the dock. The panel counts the waypoints the
    autopilot reports reached. **Abort** switches it to RTL.
 
+   Click **3D** (top right of the map) to tilt the view and watch the quad
+   fly at its real altitude over the course, or **Chase** to have the camera
+   follow it. Right-drag or Ctrl+drag turns and tilts the camera; **2D**
+   goes back to the planning view. See
+   [3D view](docs/concepts/sitl.md#3d-view).
+
 5. Optional, for a standard autopilot view next to the planner: install
    [QGroundControl](https://docs.qgroundcontrol.com/master/en/qgc-user-guide/getting_started/download_and_install.html)
    or [Mission Planner](https://ardupilot.org/planner/docs/mission-planner-installation.html)
@@ -196,7 +205,7 @@ backend/   FastAPI app: course model, grid, grouping, planner, agent, sim, w3w c
   app/sitl_drone.py       flies the route on ArduPilot SITL (FLIGHT_BACKEND=sitl)
   tools/fly_sitl.py       headless SITL flight with a pass/fail report
   tests/           pytest (the agent test uses a scripted client, no API calls)
-frontend/  Vite + TypeScript + MapLibre GL
+frontend/  Vite + TypeScript + MapLibre GL (+ three.js for the 3D view, src/view3d.ts)
 sitl/      ArduPilot SITL in Docker (Dockerfile, compose.yaml, start script, parameters)
 ```
 
