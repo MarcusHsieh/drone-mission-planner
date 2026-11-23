@@ -20,9 +20,19 @@ pytestmark = pytest.mark.skipif(not os.getenv("SITL_TEST"), reason="set SITL_TES
 def test_divot_queue_with_charge_stops_on_sitl():
     from tools.fly_queue import run
 
-    args = argparse.Namespace(divots=14, holes=None, seed=1, service_s=10.0, charge_speedup=10000.0, connection=config.SITL_CONNECTION, timeout=1500)
+    args = argparse.Namespace(divots=14, holes=None, scan_holes=None, seed=1, service_s=10.0, charge_speedup=10000.0, connection=config.SITL_CONNECTION, timeout=1500)
     r = asyncio.run(run(args))
     print(r)
     assert r["ok"], r["message"]
     assert len(r["legs"]) >= 2, "expected at least one charge stop"
     assert r["counts"]["done"] == 14
+
+
+def test_scan_then_repair_on_sitl():
+    from tools.fly_queue import run
+
+    args = argparse.Namespace(divots=6, holes=None, scan_holes=[1], seed=2, service_s=10.0, charge_speedup=10000.0, connection=config.SITL_CONNECTION, timeout=1500)
+    r = asyncio.run(run(args))
+    print(r)
+    assert r["ok"], r["message"]
+    assert r["scan"]["found"] >= 1 and r["counts"]["done"] == r["scan"]["found"]

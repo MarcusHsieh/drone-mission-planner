@@ -26,6 +26,7 @@ from .geo import CELL_M
 from .sim import DroneSim
 from .sitl_drone import SitlDrone
 from .state import MissionState
+from .scan import DivotField
 from .task_queue import TaskQueue
 from .w3w import W3WCache
 
@@ -33,7 +34,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 course = Course()
 state = MissionState(course)
-agent = Agent(course, state)
 w3w = W3WCache(course)
 buildings = Buildings(course)
 if config.FLIGHT_BACKEND == "sitl":
@@ -42,6 +42,9 @@ else:
     sim = DroneSim(course.frame)
 # The task queue plans legs and drives the same vehicle link the Fly button uses.
 tasks = TaskQueue(course, sim)
+# Divots you place (hidden from the planner) and the simulated camera that finds them.
+field = DivotField(course, tasks, sim)
+agent = Agent(course, state, tasks, field)
 
 
 @asynccontextmanager
@@ -163,9 +166,52 @@ class DivotReq(BaseModel):
     service_s: float = Field(default=15.0, ge=0, le=600)
 
 
+def queue_snapshot() -> dict:
+    return {**tasks.snapshot(), "field": field.snapshot()}
+
+
 @app.get("/api/queue")
 def queue_state() -> dict:
-    return tasks.snapshot()
+    return queue_snapshot()
+
+
+class PlacedReq(BaseModel):
+    op: str = Field(pattern="^(add|remove|clear|scatter)$")
+    points: list[tuple[float, float]] = []  # lon, lat
+    ids: list[str] = []
+    count: int = Field(default=10, ge=1, le=200)
+    holes: list[int] | None = None
+    seed: int | None = None
+
+
+@app.post("/api/field/divots")
+def field_divots(req: PlacedReq) -> dict:
+    if field.scanning:
+        raise HTTPException(409, "A scan is flying. Wait for it to land.")
+    if req.op == "add":
+        field.add([course.frame.to_xy(lon, lat) for lon, lat in req.points])
+    elif req.op == "remove":
+        field.remove(req.ids)
+    elif req.op == "clear":
+        field.clear()
+    else:
+        try:
+            field.scatter(req.count, req.holes, req.seed)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+    return queue_snapshot()
+
+
+@app.post("/api/scan")
+async def scan() -> dict:
+    route = state.route()
+    if not route:
+        raise HTTPException(400, "Preview a path over the area to scan first.")
+    try:
+        field.start_scan(route["waypoints"])
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+    return queue_snapshot()
 
 
 @app.post("/api/queue/divots")
@@ -174,7 +220,7 @@ def queue_divots(req: DivotReq) -> dict:
         tasks.generate(req.count, req.holes, req.seed, req.replace, req.service_s)
     except (RuntimeError, ValueError) as e:
         raise HTTPException(409, str(e))
-    return tasks.snapshot()
+    return queue_snapshot()
 
 
 @app.post("/api/queue/clear")
@@ -183,16 +229,18 @@ def queue_clear() -> dict:
         tasks.clear()
     except RuntimeError as e:
         raise HTTPException(409, str(e))
-    return tasks.snapshot()
+    return queue_snapshot()
 
 
 @app.post("/api/queue/run")
 async def queue_run() -> dict:
+    if field.scanning:
+        raise HTTPException(409, "A scan is flying. Run the queue after it lands.")
     try:
         tasks.start()
     except RuntimeError as e:
         raise HTTPException(409, str(e))
-    return tasks.snapshot()
+    return queue_snapshot()
 
 
 @app.post("/api/queue/abort")
@@ -201,7 +249,7 @@ async def queue_abort() -> dict:
         tasks.abort()
     except RuntimeError as e:
         raise HTTPException(409, str(e))
-    return tasks.snapshot()
+    return queue_snapshot()
 
 
 @app.post("/api/fly")

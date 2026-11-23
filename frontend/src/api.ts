@@ -193,6 +193,30 @@ export interface QueueState {
     calibrated: boolean;
   };
   service: { alt_m: number; guard_pct: number };
+  field: DivotField;
+}
+
+export interface PlacedDivot {
+  id: string;
+  x: number;
+  y: number;
+  lon: number;
+  lat: number;
+  hole: number | null;
+  found_task: string | null;
+  found_error_m: number | null;
+  seen: boolean;
+}
+
+export interface DivotField {
+  placed: PlacedDivot[];
+  scanning: boolean;
+  scans: number;
+  last_scan: { index: number; found: number; not_covered: number } | null;
+  found: number;
+  not_found: number;
+  mean_error_m: number | null;
+  camera: { footprint_m: number; pos_err_m: number };
 }
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -234,4 +258,7 @@ export const api = {
   queueRun: () => req<QueueState>("POST", "/api/queue/run"),
   queueAbort: () => req<QueueState>("POST", "/api/queue/abort"),
   queueClear: () => req<QueueState>("POST", "/api/queue/clear"),
+  placed: (body: { op: "add" | "remove" | "clear" | "scatter"; points?: LonLat[]; ids?: string[]; count?: number; holes?: number[] | null }) =>
+    req<QueueState>("POST", "/api/field/divots", body),
+  scan: () => req<QueueState>("POST", "/api/scan"),
 };

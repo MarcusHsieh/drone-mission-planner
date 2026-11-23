@@ -33,6 +33,20 @@ const LEG_STATUS: Record<QueueLeg["status"], string> = {
 };
 
 let map: MLMap | null = null;
+let placing = false;
+let hasRoute = () => false;
+
+/** Tell the panel whether a path is previewed (the scan flies it). */
+export function setRouteCheck(fn: () => boolean): void {
+  hasRoute = fn;
+}
+
+function setPlacing(on: boolean) {
+  placing = on;
+  $("#btn-place").classList.toggle("active", on);
+  $("#btn-place").textContent = on ? "Placing… (click to stop)" : "Place on map";
+  if (map) map.getCanvas().style.cursor = on ? "crosshair" : "";
+}
 let q: QueueState | null = null;
 let lastVersion = -1;
 let focusFn: (b: [number, number, number, number]) => void = () => {};
@@ -48,6 +62,13 @@ export function setupTasks(focus: (b: [number, number, number, number]) => void,
     await act(() => api.divots(count, holes && holes.length ? holes : null, null), true);
   });
   $("#btn-queue-run").addEventListener("click", () => act(api.queueRun));
+  $("#btn-place").addEventListener("click", () => setPlacing(!placing));
+  $("#btn-scatter").addEventListener("click", () => act(() => api.placed({ op: "scatter", count: 10, holes: [1] })));
+  $("#btn-placed-clear").addEventListener("click", () => act(() => api.placed({ op: "clear" })));
+  $("#btn-scan").addEventListener("click", () => {
+    setPlacing(false);
+    act(api.scan);
+  });
   $("#btn-queue-abort").addEventListener("click", () => act(api.queueAbort));
   $("#btn-queue-clear").addEventListener("click", () => act(api.queueClear));
   poll();
@@ -68,7 +89,7 @@ async function poll() {
   } catch {
     /* backend restarting: try again */
   }
-  setTimeout(poll, q?.running ? 500 : 2000);
+  setTimeout(poll, q?.running || q?.field.scanning ? 500 : 2000);
 }
 
 /** Call once the map style has loaded. */
@@ -85,6 +106,17 @@ export function addTaskLayers(m: MLMap): void {
     layout: { "line-join": "round", "line-cap": "round" },
     paint: { "line-color": ["get", "color"], "line-width": 1.5, "line-opacity": 0.45 },
   });
+  m.addSource("placed", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  m.addLayer({
+    id: "placed", type: "circle", source: "placed",
+    paint: {
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 15, 5, 19, 11],
+      "circle-color": "rgba(0,0,0,0)",
+      "circle-stroke-color": ["get", "color"],
+      "circle-stroke-width": 1.5,
+      "circle-stroke-opacity": 0.9,
+    },
+  });
   m.addSource("divots", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
   m.addLayer({
     id: "divots", type: "circle", source: "divots",
@@ -96,13 +128,19 @@ export function addTaskLayers(m: MLMap): void {
     },
   });
   m.on("mouseenter", "divots", () => (m.getCanvas().style.cursor = "pointer"));
-  m.on("mouseleave", "divots", () => (m.getCanvas().style.cursor = ""));
+  m.on("mouseleave", "divots", () => (m.getCanvas().style.cursor = placing ? "crosshair" : ""));
   if (q) drawMap(q);
 }
 
 /** True (and a popup shown) if the click hit a divot, so the map shouldn't toggle a cell. */
 export function clickDivot(e: maplibregl.MapMouseEvent): boolean {
   if (!map || !map.getLayer("divots")) return false;
+  if (placing) {
+    const hit = map.queryRenderedFeatures(e.point, { layers: ["placed"] })[0];
+    if (hit) act(() => api.placed({ op: "remove", ids: [String(hit.properties?.id)] }));
+    else act(() => api.placed({ op: "add", points: [[e.lngLat.lng, e.lngLat.lat]] }));
+    return true;
+  }
   const f = map.queryRenderedFeatures(e.point, { layers: ["divots"] })[0];
   if (!f) return false;
   const t = q?.tasks.find((x) => x.id === f.properties?.id);
@@ -140,6 +178,15 @@ function drawMap(s: QueueState) {
       type: "Feature",
       properties: { id: t.id, status: t.status, color: STATUS_COLOR[t.status] },
       geometry: { type: "Point", coordinates: [t.lon, t.lat] },
+    })),
+  });
+  (map.getSource("placed") as GeoJSONSource).setData({
+    type: "FeatureCollection",
+    features: s.field.placed.map((d) => ({
+      type: "Feature",
+      // White: hidden, not found yet. Green: found.
+      properties: { id: d.id, color: d.found_task ? "#4ade80" : "#f8fafc" },
+      geometry: { type: "Point", coordinates: [d.lon, d.lat] },
     })),
   });
   (map.getSource("legs") as GeoJSONSource).setData({
@@ -189,6 +236,13 @@ function drawPanel(s: QueueState) {
     }),
   );
 
+  const f = s.field;
+  const ls = f.last_scan;
+  $("#field-status").innerHTML = f.scanning
+    ? `<b>Scanning…</b> ${f.found} found so far.`
+    : f.placed.length || f.scans
+      ? `${f.placed.length} placed (hidden from the planner, white rings) · ${f.found} found by scans${ls ? `. Last scan: ${ls.found} found, ${ls.not_covered} never under the camera.` : "."}${f.mean_error_m != null ? ` Found positions are ${f.mean_error_m} m off on average.` : ""}`
+      : `Place divots on the map, preview a path over them (or ask the agent to plan a scan), then Scan route. The camera sees a ${f.camera.footprint_m} m strip and finds every divot that passes under it.`;
   const e = s.energy;
   $("#queue-model").innerHTML = `<b>Energy model${e.calibrated ? "" : " (uncalibrated placeholders)"}:</b> ${e.cells}S ${fmtInt(e.pack_mah)} mAh, land with ≥ ${e.reserve_pct}% left
     (${fmtInt(e.usable_mah)} mAh per leg), ${e.hover_a} A hover, ${e.cruise_a} A cruise, ×${e.margin} margin: about ${e.hover_minutes_to_reserve} min of hover per leg.
@@ -221,10 +275,16 @@ function updateButtons() {
   $<HTMLButtonElement>("#btn-queue-run").disabled = running || !pending;
   $<HTMLButtonElement>("#btn-queue-abort").disabled = !running;
   $<HTMLButtonElement>("#btn-queue-clear").disabled = running || !q?.tasks.length;
-  $<HTMLButtonElement>("#btn-divots").disabled = running;
+  const scanning = !!q?.field.scanning;
+  $<HTMLButtonElement>("#btn-divots").disabled = running || scanning;
+  $<HTMLButtonElement>("#btn-scan").disabled = running || scanning || !hasRoute();
+  $<HTMLButtonElement>("#btn-scatter").disabled = scanning;
+  $<HTMLButtonElement>("#btn-placed-clear").disabled = scanning || !q?.field.placed.length;
+  if (scanning) $<HTMLButtonElement>("#btn-queue-run").disabled = true;
 }
 
-export const queueRunning = () => !!q?.running;
+export const queueRunning = () => !!q?.running || !!q?.field.scanning;
+export const refreshTaskButtons = () => updateButtons();
 
 function boundsOf(pts: [number, number][]): [number, number, number, number] {
   const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);

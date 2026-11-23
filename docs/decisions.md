@@ -288,3 +288,31 @@ differs a lot from the model after calibration, legs come out badly
 unbalanced in practice, or tasks need time windows or priorities (then a real
 VRP solver earns its place).
 See [Task queue, legs and charge stops](concepts/task-queue.md).
+
+## D11. Divot scans: detection by geometry, and a person starts every flight
+
+**Status:** accepted (2026-11-23)
+
+**Decision.** In simulation the user places hidden divots, a scan run finds
+every one that passes under the camera footprint (with a position error,
+and no simulated misses), and the found ones become tasks for the repair queue.
+The agent can plan scans (`plan_scan`) and repairs (`plan_repair`) and read
+the results, but it cannot start a scan, a queue run or any flight: a person
+presses Scan route or Run queue. The agent sees only what the drone would
+know (how many it found), not the hidden positions or how many there are.
+
+**Why.** mj chose "agent plans, you press Fly/Run" when the scan tools were
+added. The same code will drive a real Pixhawk, so keeping a person on every
+launch avoids a rule that would have to be taken back for hardware. Geometric
+detection is enough to exercise scan-then-repair end to end without picking a
+camera or writing a vision model; hiding the ground truth from the agent
+keeps its answers honest about what a real scan would report.
+
+**Alternatives.** Let the agent start flights in simulation only, behind a
+setting (offered, not chosen). Detect from rendered imagery or a camera
+model (more realistic, but needs the camera and a vision pipeline first).
+
+**Revisit if** a real camera and detector are chosen (replace the geometry
+with measured detection rates), or flights need to start unattended (then
+decide who is in control and how a person can stop it).
+See [Task queue, legs and charge stops](concepts/task-queue.md#scan-then-repair).

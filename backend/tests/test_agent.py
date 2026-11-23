@@ -77,3 +77,33 @@ def test_bad_hole_reports_error_and_history_survives_api_failure():
     except RuntimeError:
         pass
     assert len(agent.messages) == n
+
+
+def test_plan_scan_and_repair_tools():
+    from app.scan import DivotField
+    from app.sim import DroneSim
+    from app.task_queue import TaskQueue
+
+    course = Course()
+    state = MissionState(course)
+    sim = DroneSim(course.frame)
+    q = TaskQueue(course, sim)
+    field = DivotField(course, q, sim)
+    field.scatter(4, holes=[3], seed=1)
+    agent = Agent(course, state, q, field)
+    actions = []
+    out = agent.run_tool("plan_scan", {"holes": [2, 3]}, actions)
+    assert out["holes"] == [2, 3] and out["route_m"] > 0 and isinstance(out["fits_one_battery"], bool)
+    assert [p["hole"] for p in out["per_hole"]] == [2, 3]
+    assert state.route() is not None and {a["type"] for a in actions} == {"preview", "focus"}
+    # Many holes in one scan: too much for one battery, and the tool says so.
+    big = agent.run_tool("plan_scan", {"holes": list(range(1, 10))}, [])
+    assert big["fits_one_battery"] is False and big["est_mah"] > big["usable_mah_per_battery"]
+    # The agent sees what was found, never where the hidden divots are or how many were missed.
+    brief = agent.run_tool("get_tasks", {}, [])
+    assert brief["scan"] == {"scans_flown": 0, "scanning": False, "divots_found": 0}
+    assert "placed" not in str(brief)
+    q.add_found(50.0, 50.0, None)
+    rep = agent.run_tool("plan_repair", {}, [])
+    assert rep["counts"]["pending"] == 1 and len(rep["legs"]) == 1
+    assert "error" in agent.run_tool("plan_scan", {"holes": [12]}, [])

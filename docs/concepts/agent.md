@@ -66,8 +66,19 @@ is the other way around. Splitting the work this way means:
 
 - **The tools** (`TOOLS`): `list_holes`, `select_area` (fairway, green, tees,
   or corridor for one hole, add or remove), `clear_selection`, `get_groups`,
-  `focus_map`, `preview_path`. There is no tool to fly or abort. Starting a
-  flight is always a human pressing **Fly**.
+  `focus_map`, `preview_path`, and for divots `plan_scan`, `get_tasks` and
+  `plan_repair` (see [Task queue](task-queue.md#scan-then-repair)). There is
+  no tool to fly, scan, run the queue or abort. Starting a flight is always a
+  human pressing **Fly**, **Scan route** or **Run queue** (decided again on
+  2026-11-23 when the scan tools were added, see D11).
+- **The agent only knows what the drone would know.** `get_tasks` gives how
+  many divots scans found, never where the hidden divots are or how many a
+  scan missed. That is the simulation's ground truth, shown to the user on the
+  map and not to the model.
+- **`plan_scan` checks one battery.** Scans fly as one flight with no charge
+  stops, so the tool estimates the scan's energy and returns
+  `fits_one_battery` and an estimate per hole, and the prompt tells the model
+  to offer separate scans when it doesn't fit.
 - **Map actions go to the UI.** `focus_map` and `preview_path` add actions
   (`focus`, `preview`) to the reply, and the frontend acts on them. The reply
   also carries a full state snapshot, so the map always shows what the agent

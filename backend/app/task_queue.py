@@ -84,6 +84,18 @@ class TaskQueue:
         self.replan()
         self.message = f"{len(new)} divots added. {self._plan_summary()}"
 
+    def add_found(self, x: float, y: float, hole: int | None, note: str = "", service_s: float = SERVICE_S) -> Task:
+        """Add one task found by a scan (or any other source) and plan it in."""
+        t = Task(id=f"D{self._next_id:02d}", kind="divot", x=x, y=y, hole=hole, service_s=service_s, note=note)
+        self._next_id += 1
+        self.tasks[t.id] = t
+        if not self.running:
+            self.phase = "idle"
+            self.replan()
+            self.message = f"{sum(x.status == 'pending' for x in self.tasks.values())} tasks pending. {self._plan_summary()}"
+        self._changed()
+        return t
+
     def clear(self) -> None:
         if self.running:
             raise RuntimeError("The queue is running. Abort it first.")

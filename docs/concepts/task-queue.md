@@ -47,6 +47,37 @@ flowchart LR
   V -- cut short --> R[leftovers back to pending, plan again] --> L
 ```
 
+### Scan, then repair
+
+The tasks can also come from a scan instead of being generated:
+
+1. **Place divots**: in the Tasks panel, **Place on map** turns map clicks
+   into hidden divots (click one again to remove it), or **Scatter 10 on hole 1** drops
+   random ones on hole 1's fairway (hole 1 is the test hole: the dock is at
+   its tee, and its scan fits on one battery). They are the simulation's ground truth: white
+   rings on the map, invisible to the planner and the agent.
+2. **Scan run**: select an area and preview its path (or ask the agent: "plan
+   a divot scan of hole 1", which calls `plan_scan`), then **Scan
+   route**. The drone flies the coverage path. Every hidden divot that passes
+   under the camera footprint at survey altitude is found and becomes a
+   pending task at the detected position. Rings turn green when found; a ring
+   still white after a scan was never under the camera.
+3. **Repair run**: "plan the repair run" (`plan_repair`) shows the legs and
+   charge stops; **Run queue** flies them as above.
+
+![After a scan of hole 1 on ArduPilot SITL: 10 placed divots, 9 found (yellow task dots), 1 on the unscanned fairway sliver and never under the camera](../img/scan-sitl.png)
+
+The agent plans every step and a person starts every flight
+([decision D11](../decisions.md#d11-divot-scans-detection-by-geometry-and-a-person-starts-every-flight)).
+
+| What | Where |
+| --- | --- |
+| Placed divots, the simulated camera | [`backend/app/scan.py`](../../backend/app/scan.py) (`DivotField`, `footprint_m`) |
+| Agent tools | `plan_scan`, `get_tasks`, `plan_repair` in [`backend/app/agent.py`](../../backend/app/agent.py) |
+| API | `POST /api/field/divots` (add, remove, clear, scatter), `POST /api/scan`; `GET /api/queue` carries `field` |
+| Headless | `uv run python -m tools.fly_queue --divots 6 --scan-holes 1` |
+| Tests | [`backend/tests/test_scan.py`](../../backend/tests/test_scan.py), `test_plan_scan_and_repair_tools` in `test_agent.py`, `test_scan_then_repair_on_sitl` in `test_sitl_queue.py` |
+
 ### Running it
 
 In the app: open **Tasks**, set how many divots (and optionally which holes),
@@ -79,6 +110,7 @@ the queue took the number of legs it planned.
 | `DIVOT_SERVICE_ALT_M` | `4` | Height above the dock to work at a divot. |
 | `DIVOT_SERVICE_S` | `15` | Default time on station per divot. |
 | `QUEUE_GUARD_PCT` | `20` | Cut a leg short if the vehicle's battery reads below this. |
+| `SCAN_POS_ERR_M` | `0.5` | 1-sigma error of a found divot's position, per axis. |
 
 ## Background
 
@@ -171,3 +203,24 @@ adds more. Faster charging is possible but wears the pack.
   Pixhawk 6C Mini is the same code with a serial or telemetry-radio
   connection string, once the parameters, failsafes, recharge and a GCS
   safety pilot are in place. That last part is not done or tested here.
+- **Detection is geometry, not vision.** A divot is "seen" if it is within
+  half the camera footprint of the drone's track at 80% or more of survey
+  altitude (25 m wide at 15 m, from `planner.CAMERA_HFOV_DEG`), and every
+  divot seen is found, at a position off by `SCAN_POS_ERR_M`. There are no
+  simulated misses (mj, 2026-11-23): no camera resolution, motion blur,
+  lighting or grass model, and nothing says a 10 cm divot is actually visible
+  from 15 m with the camera you pick. A real detector will miss some, so real
+  numbers will be worse than the sim's.
+- **A scan covers the selected cells, not the whole fairway.** `feature_cells`
+  drops fairway slivers under 10 cells, so a divot on a sliver is never under
+  the camera ("never under the camera" in the scan line). Seen in SITL on
+  hole 3 (2026-11-23). It matters on hole 1, the test hole: its fairway is a
+  4298 m² piece and a 448 m² sliver, so about 1 in 10 scattered divots lands
+  on the sliver and is never seen. With 6 divots and seeds 2 and 10 to 29, 6
+  of 21 scatters had one divot there.
+- **Scans have no charge stops.** A scan is one flight. `plan_scan` warns when
+  it won't fit on one battery, but holes 4 and 6 alone are over the usable
+  energy by the placeholder model, so they can't be scanned safely yet.
+  Splitting a coverage route into battery-sized legs is the next step.
+- **Repairs go to the detected position**, which is off from the real divot
+  by the position error. The scan line shows the average error.
