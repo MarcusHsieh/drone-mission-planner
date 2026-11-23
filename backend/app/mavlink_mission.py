@@ -30,6 +30,7 @@ from pymavlink import mavutil  # noqa: E402
 
 from . import planner
 from .geo import LocalFrame
+from .vehicle import LegMission
 
 mavlink = mavutil.mavlink
 
@@ -100,6 +101,34 @@ def build_mission(
         items.append(MissionItem(len(items), mavlink.MAV_CMD_NAV_WAYPOINT, rel, lat, lon, alt_m))
     items.append(MissionItem(len(items), mavlink.MAV_CMD_NAV_LAND, rel, dock_lat, dock_lon, 0.0))
     return items
+
+
+def build_leg_mission(leg: LegMission, frame: LocalFrame) -> tuple[list[MissionItem], dict[str, dict[str, int]]]:
+    """Mission items for one task-queue leg, plus where each task is in it.
+
+    Same frame as `build_mission` (home, takeoff, speed, waypoints, land at the
+    dock), but every waypoint keeps its own altitude and hold time (param1 of
+    NAV_WAYPOINT, seconds). A task is three waypoints: approach (over it at
+    cruise altitude), service (down at the service altitude, with the hold)
+    and depart (back up). Returns {task_id: {"approach": seq, "service": seq,
+    "depart": seq}} so progress can be read from the mission sequence.
+    """
+    rel = mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT
+    dock_lon, dock_lat = frame.to_lonlat(0.0, 0.0)
+    items = [
+        MissionItem(0, mavlink.MAV_CMD_NAV_WAYPOINT, mavlink.MAV_FRAME_GLOBAL, dock_lat, dock_lon, 0.0),
+        MissionItem(1, mavlink.MAV_CMD_NAV_TAKEOFF, rel, 0.0, 0.0, leg.cruise_alt_m),
+        MissionItem(2, mavlink.MAV_CMD_DO_CHANGE_SPEED, rel, params=(1.0, leg.speed_ms, -1.0, 0.0)),
+    ]
+    where: dict[str, dict[str, int]] = {}
+    for w in leg.waypoints:
+        lon, lat = frame.to_lonlat(w.x, w.y)
+        seq = len(items)
+        items.append(MissionItem(seq, mavlink.MAV_CMD_NAV_WAYPOINT, rel, lat, lon, w.alt_m, params=(float(w.hold_s), 0.0, 0.0, 0.0)))
+        if w.task_id:
+            where.setdefault(w.task_id, {})[w.role] = seq
+    items.append(MissionItem(len(items), mavlink.MAV_CMD_NAV_LAND, rel, dock_lat, dock_lon, 0.0))
+    return items, where
 
 
 def nav_seqs(items: list[MissionItem]) -> list[int]:

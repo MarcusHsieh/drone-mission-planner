@@ -55,13 +55,13 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - name: Fly hole 2's fairway and check every waypoint
+      - name: Fly hole 2's fairway, then a divot task queue with charge stops
         working-directory: backend
         env:
           SITL_TEST: "1"
         run: |
           uv sync --locked
-          uv run pytest -q -s tests/test_sitl_flight.py
+          uv run pytest -q -s tests/test_sitl_flight.py tests/test_sitl_queue.py
       - name: SITL log
         if: always()
         run: docker compose -f sitl/compose.yaml logs --no-color | tail -n 100

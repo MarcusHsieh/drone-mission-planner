@@ -33,6 +33,7 @@ shows during a flight:
 | Link | Whether the browser is getting telemetry, autopilot heartbeat age, packet loss, the vehicle's own drop rate, RC signal | `HEARTBEAT`, MAVLink sequence numbers, `SYS_STATUS`, `RC_CHANNELS` |
 | Rangefinder | Downward distance, in range or not, compared with altitude | `DISTANCE_SENSOR` (pointing down) |
 | Flight | Fly and Abort, the mode and message, mission progress, waypoints reached, distance to the next waypoint and off the line | `MISSION_CURRENT`, `MISSION_ITEM_REACHED`, `NAV_CONTROLLER_OUTPUT` |
+| Tasks | The divot task queue: generate, run, abort; each leg's prediction and what the vehicle measured; task status; charge progress. Divots and legs are drawn on the map. See [Task queue](task-queue.md) | the planner (`GET /api/queue`), progress from `MISSION_CURRENT` and `MISSION_ITEM_REACHED` |
 
 The top bar repeats the essentials (armed, mode, battery, GPS, an overall
 health light, link) so they stay visible with any layout.
@@ -100,11 +101,15 @@ What the panels mean:
   but each one is a way to send a wrong command to a real drone, so they
   should come with confirmation and a decision about who is in control (the
   RC pilot always wins).
-- **dockview for the layout.** See D9 for why.
+- **dockview for the layout.** See D9 for why. Adding the Tasks panel
+  changed the default layout, so layouts saved by older versions are reset
+  once (the storage key went from `v1` to `v2`).
 - **The built-in sim's health values are placeholders.** It has no sensor
   model, so its EKF, vibration, sensors and link always look healthy, and the
-  panels say so. Battery and rangefinder follow its simple models. Use SITL to
-  see real values.
+  panels say so. Its battery follows the task queue's energy model (a 4S
+  5000 mAh pack drawing the placeholder current for each flight phase, see
+  [Task queue](task-queue.md)), and its rangefinder follows its altitude. Use
+  SITL to see real values.
 - **SITL is not the airframe.** It is ArduPilot's generic quad on a 3S
   battery model, so the battery panel shows about 12.6 V and "3S", with the
   placeholder capacity from `sitl/planner.parm`. SITL reports zero vibration

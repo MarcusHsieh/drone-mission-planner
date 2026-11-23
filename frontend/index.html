@@ -71,6 +71,23 @@
         </div>
       </div>
 
+      <div data-panel="tasks" class="panel-body pad" id="tasks-panel">
+        <div class="row tasks-gen">
+          <label>Divots <input id="divot-count" type="number" min="1" max="200" value="20" /></label>
+          <label title="Comma-separated hole numbers, or empty for every hole">Holes <input id="divot-holes" placeholder="all" /></label>
+          <button id="btn-divots" class="small">Generate</button>
+        </div>
+        <div class="row">
+          <button id="btn-queue-run">Run queue</button>
+          <button id="btn-queue-abort" class="danger">Abort</button>
+          <button id="btn-queue-clear" class="ghost">Clear</button>
+        </div>
+        <div id="queue-status"></div>
+        <div id="queue-legs"></div>
+        <div id="queue-tasks"></div>
+        <div id="queue-model" class="note"></div>
+      </div>
+
       <div data-panel="hud" class="panel-body hud-panel"><canvas id="hud"></canvas></div>
       <div data-panel="battery" class="panel-body pad" id="battery-panel"></div>
       <div data-panel="gps" class="panel-body pad" id="gps-panel"></div>

@@ -3,7 +3,7 @@
 Flies the previewed route: take off at the dock, fly every group's passes in
 order, return, land. Publishes telemetry shaped like what we'll read from
 MAVLink (position, altitude, heading, speed, battery, mode, GPS) at 5 Hz.
-Battery and voltage use a made-up linear model; the UI labels them simulated.
+The battery drains by the planner's energy model; the UI labels it simulated.
 The dashboard's health panels (EKF, vibration, sensors, link) get steady
 "all good" values so the layout can be tried without SITL; only SITL's are real.
 """
@@ -15,27 +15,24 @@ import math
 import time
 from typing import Any
 
-from . import config
-from . import vitals
+from . import config, planner, vitals
+from .energy import EnergyModel
 from .geo import LocalFrame
+from .vehicle import LegMission, LegProgress, LegWaypoint
 
 TICK_S = 0.2  # 5 Hz
-CLIMB_MS = 2.5
-CRUISE_MS = 5.0
-ALT_M = 15.0
-ENDURANCE_S = 20 * 60  # placeholder: full battery = 20 min of flight
-CELLS = 6  # the airframe's 6S pack
-V_FULL, V_EMPTY = 4.2 * CELLS, 3.5 * CELLS
-# Placeholder capacity, the same as BATT_CAPACITY in sitl/planner.parm, so a
-# 20 minute flight draws a plausible 36 A. The real pack is 2200 mAh.
-CAPACITY_MAH = 12000
-HOVER_A = CAPACITY_MAH / 1000 / (ENDURANCE_S / 3600)
+ALT_M = planner.ALTITUDE_M
 IDLE_A = 0.4
+# The battery follows the planner's energy model (a 4S pack, placeholder
+# currents per flight phase, see energy.py) without its safety margin, so the
+# sim draws a little less than the plan predicts, as a real flight should.
+ENERGY = EnergyModel.from_env()
 
 
 class DroneSim:
-    def __init__(self, frame: LocalFrame) -> None:
+    def __init__(self, frame: LocalFrame, energy: EnergyModel | None = None) -> None:
         self.frame = frame
+        self.energy = energy or ENERGY
         self.subscribers: set[asyncio.Queue] = set()
         self.task: asyncio.Task | None = None
         self._idle: asyncio.Task | None = None
@@ -44,6 +41,11 @@ class DroneSim:
         self.msglog.add("Built-in simulator ready (health values are placeholders)", vitals.INFO, "planner")
         self._reset()
 
+        self.connected = True
+        self.consumed_mah = 0.0  # since the last recharge; survives between flights like a real pack
+        self.progress = LegProgress(finished=True)
+        self._leg_mah0 = 0.0
+
     def _reset(self) -> None:
         self.x = self.y = 0.0
         self.alt = 0.0
@@ -51,13 +53,16 @@ class DroneSim:
         self.speed = 0.0
         self.climb = 0.0
         self.wp_dist = 0.0
-        self.battery = 100.0
+        self.current = IDLE_A
         self.mode = "DOCKED"
         self.flown_m = 0.0
         self.route_m = 0.0
-        self.t0 = None
         self.sim_elapsed = 0.0
         self.message = "On dock, charged"
+
+    @property
+    def battery(self) -> float:
+        return 100 * (1 - self.consumed_mah / self.energy.pack_mah)
 
     async def on_startup(self) -> None:
         """Keep publishing while docked (the flight task publishes in flight),
@@ -85,9 +90,9 @@ class DroneSim:
         lon, lat = self.frame.to_lonlat(self.x, self.y)
         pct = max(self.battery, 0.0)
         airborne = self.mode not in ("DOCKED",)
-        current = HOVER_A * (1.1 if self.speed > 0 else 1.0) if airborne and self.alt > 0 else IDLE_A
-        voltage = V_EMPTY + (V_FULL - V_EMPTY) * pct / 100 - 0.015 * current
-        used = round(CAPACITY_MAH * (100 - pct) / 100)
+        current = self.current if airborne else IDLE_A
+        voltage = self.energy.cells * (3.5 + 0.7 * pct / 100) - 0.015 * current
+        left_mah = max(self.energy.pack_mah - self.consumed_mah, 0.0)
         return {
             "t": time.time(),
             "lat": lat,
@@ -111,6 +116,7 @@ class DroneSim:
             "message": self.message,
             "simulated": True,
             "source": "sim",
+            "connected": True,
             # Dashboard panels. Placeholders where the sim has no model.
             "climb_ms": round(self.climb, 1),
             "airspeed_ms": round(self.speed, 1),
@@ -124,9 +130,9 @@ class DroneSim:
                 "voltage_v": round(voltage, 2),
                 "current_a": round(current, 1),
                 "remaining_pct": round(pct, 1),
-                "consumed_mah": used,
-                "capacity_mah": CAPACITY_MAH,
-                "time_remaining_s": round(ENDURANCE_S * pct / 100) if airborne else None,
+                "consumed_mah": round(self.consumed_mah),
+                "capacity_mah": round(self.energy.pack_mah),
+                "time_remaining_s": round(left_mah / current * 3.6) if airborne and current > 1 else None,
             },
             "gps": {"fix": "3D", "fix_type": 3, "satellites": 14, "hdop": 0.7, "vdop": 1.1, "h_acc_m": None},
             "ekf": vitals.ekf_status(0x3FF & ~vitals.mavlink.EKF_CONST_POS_MODE & ~vitals.mavlink.EKF_UNINITIALIZED, {
@@ -157,72 +163,140 @@ class DroneSim:
                     pass
             q.put_nowait(msg)
 
+    # -- flying ------------------------------------------------------------------
     def start(self, waypoints: list[tuple[float, float]]) -> None:
+        """Fly a survey route (dock -> points -> dock) at survey altitude."""
+        inner = waypoints[1:-1] if len(waypoints) > 2 else waypoints[1:]
+        leg = LegMission(0, [LegWaypoint(x, y, ALT_M) for x, y in inner], ALT_M, self.energy.cruise_ms)
+        self._begin(leg, sum(math.dist(a, b) for a, b in zip(waypoints, waypoints[1:])), "Surveying")
+
+    def start_leg(self, leg: LegMission) -> None:
+        pts = [(0.0, 0.0)] + [(w.x, w.y) for w in leg.waypoints] + [(0.0, 0.0)]
+        self._begin(leg, sum(math.dist(a, b) for a, b in zip(pts, pts[1:])), f"Leg {leg.index}")
+
+    def _begin(self, leg: LegMission, route_m: float, label: str) -> None:
         if self.flying:
             raise RuntimeError("Already flying")
         self._reset()
         self.abort_requested = False
-        self.route_m = sum(math.dist(a, b) for a, b in zip(waypoints, waypoints[1:]))
-        self.task = asyncio.create_task(self._fly(waypoints))
+        self.route_m = route_m
+        self.progress = LegProgress()
+        self._leg_mah0 = self.consumed_mah
+        self.task = asyncio.create_task(self._fly(leg, label))
+
+    def leg_progress(self) -> LegProgress:
+        self.progress.flight_s = self.sim_elapsed
+        self.progress.consumed_mah = self.consumed_mah - self._leg_mah0
+        return self.progress
 
     def abort(self) -> None:
         self.abort_requested = True
 
-    async def _step(self, dt_sim: float) -> None:
+    def return_to_dock(self) -> None:
+        self.abort_requested = True
+
+    def recharge(self) -> None:
+        self.consumed_mah = 0.0
+        self.msglog.add("Battery recharged on the dock (simulated)", vitals.INFO, "planner")
+        if not self.flying:
+            self.message = "On dock, charged"
+
+    async def _step(self, dt_sim: float, current: float) -> None:
         self.sim_elapsed += dt_sim
-        self.battery -= 100 * dt_sim / ENDURANCE_S
+        self.current = current
+        self.consumed_mah += current * dt_sim / 3.6
         await self.publish()
         await asyncio.sleep(TICK_S)
 
-    async def _fly(self, waypoints: list[tuple[float, float]]) -> None:
-        dt = TICK_S * config.SIM_SPEEDUP
-        try:
-            self.msglog.add("Armed", vitals.NOTICE, "planner")
-            self._say("TAKEOFF", "Taking off from dock")
-            while self.alt < ALT_M:
-                self.alt = min(ALT_M, self.alt + CLIMB_MS * dt)
-                self.speed, self.climb = 0.0, CLIMB_MS
-                await self._step(dt)
-            self.climb = 0.0
-            self._say("AUTO", "Surveying")
-            path = list(waypoints)
-            k = 1
-            while k < len(path):
-                if self.abort_requested and self.mode != "RTL":
-                    self._say("RTL", "Abort: returning to dock", vitals.WARNING)
-                    path = [(self.x, self.y), (0.0, 0.0)]
-                    k = 1
-                    continue
-                tx, ty = path[k]
-                d = math.dist((self.x, self.y), (tx, ty))
-                self.wp_dist = d
-                step = CRUISE_MS * dt
-                if d > 0.01:
-                    self.heading = math.degrees(math.atan2(tx - self.x, ty - self.y))
+    async def _goto(self, tx: float, ty: float, talt: float, speed: float) -> bool:
+        """Fly to (tx, ty) at the current altitude, then climb or descend to talt.
+        Returns False if an abort came in on the way."""
+        while True:
+            if self.abort_requested and self.mode in ("TAKEOFF", "AUTO"):
+                return False
+            dt = TICK_S * config.SIM_SPEEDUP
+            d = math.dist((self.x, self.y), (tx, ty))
+            self.wp_dist = d
+            if d > 0.01:
+                self.heading = math.degrees(math.atan2(tx - self.x, ty - self.y))
+                step = speed * dt
+                self.climb = 0.0
                 if d <= step:
                     self.flown_m += d
                     self.x, self.y = tx, ty
-                    k += 1
-                    if k == len(path) - 1 and self.mode == "AUTO":
-                        self._say("RTL", "Survey done, returning to dock")
-                    if d < step * 0.5:
-                        continue  # don't burn a tick on a tiny leg
+                    dt = d / speed  # only the time it took
                 else:
                     self.x += (tx - self.x) / d * step
                     self.y += (ty - self.y) / d * step
                     self.flown_m += step
-                self.speed = CRUISE_MS
-                await self._step(dt)
+                self.speed = speed
+                await self._step(dt, self.energy.cruise_a)
+                continue
+            dz = talt - self.alt
+            if abs(dz) > 0.01:
+                rate = self.energy.climb_ms if dz > 0 else self.energy.descent_ms
+                self.speed = 0.0
+                self.climb = rate if dz > 0 else -rate
+                if abs(dz) <= rate * dt:
+                    self.alt, dt = talt, abs(dz) / rate
+                else:
+                    self.alt += math.copysign(rate * dt, dz)
+                await self._step(dt, self.energy.climb_a if dz > 0 else self.energy.descent_a)
+                continue
+            self.climb = 0.0
+            return True
+
+    async def _hold(self, seconds: float) -> bool:
+        left = seconds
+        self.speed = 0.0
+        while left > 0:
+            if self.abort_requested:
+                return False
+            dt = min(TICK_S * config.SIM_SPEEDUP, left)
+            left -= dt
+            await self._step(dt, self.energy.hover_a)
+        return True
+
+    async def _fly(self, leg: LegMission, label: str) -> None:
+        p = self.progress
+        try:
+            self.msglog.add("Armed", vitals.NOTICE, "planner")
+            self._say("TAKEOFF", "Taking off from dock")
+            await self._goto(0.0, 0.0, leg.cruise_alt_m, leg.speed_ms)
+            self._say("AUTO", label)
+            survey = leg.index == 0
+            for k, w in enumerate(leg.waypoints):
+                if w.role == "approach":
+                    p.active_task = w.task_id
+                    self.message = f"{label}: flying to {w.task_id}"
+                elif w.role == "service":
+                    self.message = f"{label}: working on {w.task_id}"
+                if not await self._goto(w.x, w.y, w.alt_m, leg.speed_ms):
+                    break
+                if w.hold_s and not await self._hold(w.hold_s):
+                    break
+                if w.role == "service" and w.task_id:
+                    p.done_tasks.append(w.task_id)
+                    p.active_task = None
+                    self.msglog.add(f"{w.task_id} done", vitals.INFO, "planner")
+                if survey and k == len(leg.waypoints) - 1:
+                    self._say("RTL", "Survey done, returning to dock")
+            if self.abort_requested:
+                p.returning = True
+                p.active_task = None
+                self._say("RTL", "Returning to dock early", vitals.WARNING)
+                await self._goto(self.x, self.y, max(self.alt, leg.cruise_alt_m), leg.speed_ms)
+            elif not survey:
+                self._say("RTL", f"{label} done, returning to dock")
+            await self._goto(0.0, 0.0, max(self.alt, leg.cruise_alt_m), leg.speed_ms)
             self._say("LAND", "Landing on dock")
             self.speed = 0.0
-            while self.alt > 0:
-                self.alt = max(0.0, self.alt - CLIMB_MS * dt)
-                self.climb = -CLIMB_MS
-                await self._step(dt)
-            self.climb = 0.0
+            await self._goto(0.0, 0.0, 0.0, leg.speed_ms)
             self.msglog.add("Disarmed", vitals.NOTICE, "planner")
-            self._say("DOCKED", "Aborted and docked" if self.abort_requested else "Mission complete, charging on dock")
+            self._say("DOCKED", "Returned early and docked" if self.abort_requested else "Landed on dock")
             await self.publish()
         except asyncio.CancelledError:
             self.mode, self.message = "DOCKED", "Simulation stopped"
             raise
+        finally:
+            p.finished = True

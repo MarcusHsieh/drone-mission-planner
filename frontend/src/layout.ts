@@ -22,6 +22,7 @@ export const PANELS: PanelDef[] = [
   { id: "map", title: "Map", hint: "Course, selection, route and the drone (2D, 3D, chase)" },
   { id: "agent", title: "Agent", hint: "Ask Claude to select and plan" },
   { id: "selection", title: "Selection", hint: "Selected groups and the route preview" },
+  { id: "tasks", title: "Tasks", hint: "Divot task queue: legs, charge stops, task status" },
   { id: "flight", title: "Flight", hint: "Fly, abort, mode, mission progress" },
   { id: "hud", title: "Attitude", hint: "Artificial horizon, heading, speed, altitude, climb" },
   { id: "battery", title: "Battery", hint: "Voltage, current, mAh used, time left" },
@@ -33,7 +34,7 @@ export const PANELS: PanelDef[] = [
 ];
 
 // Bump when PANELS or the default layout changes enough that old saved layouts should be dropped.
-const STORAGE_KEY = "dmp.dashboard.layout.v1";
+const STORAGE_KEY = "dmp.dashboard.layout.v2";
 
 const store = () => document.getElementById("panel-store")!;
 const bodyOf = (id: string) => document.querySelector<HTMLElement>(`[data-panel="${id}"]`);
@@ -116,6 +117,7 @@ export class Dashboard {
     add("map");
     add("agent", { referencePanel: "map", direction: "right" }, { initialWidth: 410 });
     add("selection", { referencePanel: "agent", direction: "within" });
+    add("tasks", { referencePanel: "agent", direction: "within" });
     add("flight", { referencePanel: "agent", direction: "below" });
     // The instrument strip spans the full width so each panel gets room.
     add("hud", { direction: "below" }, { initialHeight: 270 });

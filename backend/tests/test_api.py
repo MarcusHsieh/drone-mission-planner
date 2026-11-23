@@ -53,7 +53,7 @@ def test_telemetry_has_dashboard_fields(monkeypatch):
     with TestClient(app) as c:
         t = c.get("/api/telemetry").json()
         assert DASHBOARD_KEYS <= set(t)
-        assert t["battery"]["capacity_mah"] > 0 and t["battery"]["voltage_v"] > 20  # 6S
+        assert t["battery"]["capacity_mah"] > 0 and t["battery"]["voltage_v"] > 14  # 4S
         assert t["ekf"]["level"] == "ok" and t["prearm"]["ok"] is True
         c.post("/api/selection", json={"op": "set", "box": [-50, -30, -46, -26]})
         c.post("/api/preview", json={})

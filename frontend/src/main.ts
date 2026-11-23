@@ -6,6 +6,7 @@ import { LocalFrame } from "./geo";
 import { Flight3D } from "./view3d";
 import { Dashboard } from "./layout";
 import { setupPanels, updatePanels } from "./panels";
+import { addTaskLayers, clickDivot, queueRunning, setupTasks } from "./tasks";
 
 // Distinct, readable on satellite imagery.
 const PALETTE = ["#22d3ee", "#f472b6", "#facc15", "#a78bfa", "#fb923c", "#4ade80", "#60a5fa", "#f87171"];
@@ -86,6 +87,7 @@ function buildMap() {
   map.on("load", () => {
     addCourseLayers();
     addDynamicLayers();
+    addTaskLayers(map);
     addMarkers();
     flight3d = new Flight3D(frame);
     flight3d.onPose = chaseCamera;
@@ -318,6 +320,7 @@ function setupSelection() {
   map.on("click", (e) => {
     const oe = e.originalEvent;
     if (oe.shiftKey || oe.altKey) return;
+    if (clickDivot(e)) return;
     const cell = frame.cellOf(e.lngLat.lng, e.lngLat.lat);
     if (!inGrid(cell)) return toast("That spot is outside the front-nine grid.");
     edit("toggle", [cell]);
@@ -478,7 +481,7 @@ function updateButtons() {
   const hasGroups = !!state?.groups.length;
   $<HTMLButtonElement>("#btn-preview").disabled = !hasGroups;
   $<HTMLButtonElement>("#btn-clear").disabled = !hasGroups;
-  $<HTMLButtonElement>("#btn-fly").disabled = flying || !state?.route;
+  $<HTMLButtonElement>("#btn-fly").disabled = flying || !state?.route || queueRunning();
   $<HTMLButtonElement>("#btn-abort").disabled = !flying;
 }
 
@@ -551,7 +554,7 @@ function setView(mode: ViewMode) {
 // if Google fails, the boxes stay. Nothing 3D is fetched until the first
 // switch to 3D or Chase.
 const GROUND_OVERLAYS = ["fairway-fill", "fairway-line", "green-line", "tee-line", "bunker-line", "water-line", "hole-line",
-  "cells-fill", "cells-outline", "route-transit", "path-casing", "path", "trail"];
+  "cells-fill", "cells-outline", "route-transit", "path-casing", "path", "trail", "legs-planned", "legs-flown", "divots"];
 let buildingsRequested = false;
 let photorealNote = "";
 let attributionTimer = 0;
@@ -684,6 +687,7 @@ async function boot() {
   setupSelection();
   setupChat();
   setupButtons();
+  setupTasks(focus, toast);
   setupViews();
   renderState(await api.state());
   connectTelemetry();

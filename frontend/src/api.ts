@@ -137,6 +137,64 @@ export interface LogMessage {
   text: string;
 }
 
+export type TaskStatus = "pending" | "active" | "done" | "failed";
+
+export interface QueueTask {
+  id: string;
+  kind: string;
+  x: number;
+  y: number;
+  lon: number;
+  lat: number;
+  hole: number | null;
+  service_s: number;
+  status: TaskStatus;
+  attempts: number;
+  leg: number | null;
+  note: string;
+}
+
+export interface QueueLeg {
+  index: number;
+  task_ids: string[];
+  distance_m: number;
+  time_s: number;
+  mah: number;
+  pct_of_pack: number;
+  end_pct: number;
+  charge_after_s: number;
+  status: "planned" | "flying" | "done" | "cut_short" | "aborted" | "failed";
+  actual: { tasks_done?: number; flight_s?: number | null; mah?: number | null; mah_vs_plan?: number; landed_from_dock_m?: number | null };
+  breakdown_s: Record<string, number>;
+  path: LonLat[];
+}
+
+export interface QueueState {
+  version: number;
+  phase: "idle" | "flying" | "charging" | "done" | "aborted" | "failed";
+  running: boolean;
+  message: string;
+  counts: Record<TaskStatus, number>;
+  tasks: QueueTask[];
+  legs: QueueLeg[];
+  remaining: { legs: number; charge_stops: number; time_s: number; mah: number };
+  charge: { real_s: number; wall_s: number; left_s: number; pct: number } | null;
+  energy: {
+    pack_mah: number;
+    cells: number;
+    reserve_pct: number;
+    margin: number;
+    hover_a: number;
+    cruise_a: number;
+    usable_mah: number;
+    hover_minutes_to_reserve: number;
+    charge_c: number;
+    charge_speedup: number;
+    calibrated: boolean;
+  };
+  service: { alt_m: number; guard_pct: number };
+}
+
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   const r = await fetch(url, {
     method,
@@ -170,4 +228,10 @@ export const api = {
   fly: () => req<{ ok: boolean }>("POST", "/api/fly"),
   abort: () => req<{ ok: boolean }>("POST", "/api/abort"),
   messages: () => req<{ messages: LogMessage[] }>("GET", "/api/messages"),
+  queue: () => req<QueueState>("GET", "/api/queue"),
+  divots: (count: number, holes: number[] | null, seed: number | null) =>
+    req<QueueState>("POST", "/api/queue/divots", { count, holes, seed }),
+  queueRun: () => req<QueueState>("POST", "/api/queue/run"),
+  queueAbort: () => req<QueueState>("POST", "/api/queue/abort"),
+  queueClear: () => req<QueueState>("POST", "/api/queue/clear"),
 };

@@ -23,6 +23,7 @@ have what you need:
 | [Agent](concepts/agent.md) | How Claude drives the planner through tool calls, and what it is not allowed to do |
 | [ArduPilot SITL and MAVLink missions](concepts/sitl.md) | How a route becomes an ArduPilot mission, how it is uploaded and flown on SITL, and how to run it headless or as a demo |
 | [Flight dashboard](concepts/dashboard.md) | The movable panels, what each instrument shows and where it comes from in MAVLink, and what stays in QGroundControl |
+| [Task queue, legs and charge stops](concepts/task-queue.md) | Fake divots as tasks, the energy model, splitting the queue into legs that each fit on a battery, charging on the dock, and the boundary between the planner and the vehicle |
 | [Design decisions](decisions.md) | A short log of decisions that shaped the project, with the reasons and alternatives |
 
 For setup, running the app and the demo script, see the [main README](../README.md).
@@ -52,7 +53,14 @@ For setup, running the app and the demo script, see the [main README](../README.
 | **EKF** | ArduPilot's extended Kalman filter: it fuses IMU, GPS, compass and barometer into the position and attitude the autopilot flies on. |
 | **HDOP** | Horizontal dilution of precision: how good the GPS satellites' geometry is for a position fix. Lower is better. |
 | **Pre-arm checks** | ArduPilot's checks before it allows arming (sensors, calibration, GPS, EKF, battery, RC). |
-| **Sortie** | One flight on one battery charge. M1 has no sorties yet: a route is assumed to fit on a single battery. Splitting into sorties with charge stops is planned for M2 and M3. |
+| **Sortie** | One flight on one battery charge. Survey routes from the Fly button are still assumed to fit on one battery; the task queue splits its work into sorties, called legs there. |
+| **Task** | A spot the drone flies to and works at (descend, hold, climb back), with a status: pending, active, done or failed. In simulation the tasks are fake divots. |
+| **Divot** | A patch of turf torn out by a golf shot. Here, a fake one: a random point inside a fairway, used as a task. |
+| **Leg** | One flight of the task queue: take off from the dock with a full pack, visit some tasks, land on the dock with at least the reserve left. |
+| **Charge stop** | Time on the dock between two legs while the pack charges (simulated). |
+| **Energy model** | The planner's prediction of current draw per flight phase (hover, cruise, climb, descent), with a reserve and a safety margin. Placeholders until calibrated on the real airframe. |
+| **Reserve** | The share of the pack a leg must still have when it lands, by the model. |
+| **Vehicle link** | The code that flies one leg and reports progress: the built-in sim, or ArduPilot over MAVLink (SITL now, a real Pixhawk later). |
 
 ## Keeping these docs current
 
@@ -81,6 +89,7 @@ assistants alike.
 | `backend/app/agent.py` (tools, system prompt, loop), agent settings in `config.py` | [Agent](concepts/agent.md) |
 | `backend/app/mavlink_mission.py`, `backend/app/sitl_drone.py`, `backend/tools/fly_sitl.py`, `sitl/`, `.github/workflows/ci.yml`, SITL settings in `config.py` | [ArduPilot SITL and MAVLink missions](concepts/sitl.md) |
 | `frontend/src/layout.ts`, `panels.ts`, `hud.ts`, panel contents in `frontend/index.html`, `backend/app/vitals.py`, telemetry fields in `sim.py` or `sitl_drone.py` | [Flight dashboard](concepts/dashboard.md) |
+| `backend/app/tasks.py`, `energy.py`, `charge_plan.py`, `vehicle.py`, `task_queue.py`, `start_leg`/`leg_progress`/`recharge` in `sim.py` or `sitl_drone.py`, `build_leg_mission`, `backend/tools/fly_queue.py`, `frontend/src/tasks.ts` | [Task queue, legs and charge stops](concepts/task-queue.md) |
 | A new concept with no page yet (for example sorties, charging, SITL) | A new page in `concepts/` with the same three sections, linked from the table above |
 | A choice between real alternatives that someone would ask about later | A new entry in [decisions](decisions.md) (add new entries, never rewrite old ones) |
 | New terms | The glossary above |
