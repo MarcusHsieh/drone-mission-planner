@@ -65,7 +65,7 @@ The tasks can also come from a scan instead of being generated:
 3. **Repair run**: "plan the repair run" (`plan_repair`) shows the legs and
    charge stops; **Run queue** flies them as above.
 
-![After a scan of hole 1 on ArduPilot SITL: 10 placed divots, 9 found (yellow task dots), 1 on the unscanned fairway sliver and never under the camera](../img/scan-sitl.png)
+![After a scan of hole 1 on ArduPilot SITL: the main fairway and the collar around the green are both scanned, and all 10 placed divots are found (yellow task dots)](../img/scan-sitl.png)
 
 The agent plans every step and a person starts every flight
 ([decision D11](../decisions.md#d11-divot-scans-detection-by-geometry-and-a-person-starts-every-flight)).
@@ -211,16 +211,16 @@ adds more. Faster charging is possible but wears the pack.
   lighting or grass model, and nothing says a 10 cm divot is actually visible
   from 15 m with the camera you pick. A real detector will miss some, so real
   numbers will be worse than the sim's.
-- **A scan covers the selected cells, not the whole fairway.** `feature_cells`
-  drops fairway slivers under 10 cells, so a divot on a sliver is never under
-  the camera ("never under the camera" in the scan line). Seen in SITL on
-  hole 3 (2026-11-23). It matters on hole 1, the test hole: its fairway is a
-  4298 m² piece and a 448 m² sliver, so about 1 in 10 scattered divots lands
-  on the sliver and is never seen. With 6 divots and seeds 2 and 10 to 29, 6
-  of 21 scatters had one divot there.
+- **A scan covers the selected cells.** A fairway scan (`plan_scan`) covers
+  every piece of the fairway, including the collars around the greens (see
+  [Course data](course-data.md)). A divot placed by hand outside the
+  selection, or on a selection you drew yourself, can still be "never under
+  the camera".
 - **Scans have no charge stops.** A scan is one flight. `plan_scan` warns when
   it won't fit on one battery, but holes 4 and 6 alone are over the usable
-  energy by the placeholder model, so they can't be scanned safely yet.
+  energy by the placeholder model (about 4000 and 4400 mAh against 3500), so
+  they can't be scanned safely yet, and hole 5 (about 3450) has almost no
+  margin.
   Splitting a coverage route into battery-sized legs is the next step.
 - **Repairs go to the detected position**, which is off from the real divot
   by the position error. The scan line shows the average error.

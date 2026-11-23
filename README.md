@@ -226,8 +226,8 @@ measured.
 `backend/app/data/osm_front9.json` is a snapshot of the OSM features near
 holes 1-9, read from the OSM API on 2026-11-08. OSM fairways have no hole
 number, so each fairway is assigned to the hole whose center line runs
-through it the most. When a fairway is turned into cells, pieces under 10
-cells (slivers around the greens) are dropped. The outlines cite old Yahoo
+through it the most. When a fairway is turned into cells, every piece is
+kept, including the thin collars around the greens. The outlines cite old Yahoo
 imagery, so check them against the satellite layer and retrace a hole in OSM
 if it is off.
 
