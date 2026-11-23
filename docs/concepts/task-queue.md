@@ -52,11 +52,12 @@ flowchart LR
 The tasks can also come from a scan instead of being generated:
 
 1. **Place divots**: in the Tasks panel, **Place on map** turns map clicks
-   into hidden divots (click one again to remove it), or **Scatter 10** drops
-   random ones on the fairways. They are the simulation's ground truth: white
+   into hidden divots (click one again to remove it), or **Scatter 10 on hole 1** drops
+   random ones on hole 1's fairway (hole 1 is the test hole: the dock is at
+   its tee, and its scan fits on one battery). They are the simulation's ground truth: white
    rings on the map, invisible to the planner and the agent.
 2. **Scan run**: select an area and preview its path (or ask the agent: "plan
-   a divot scan of holes 2 and 3", which calls `plan_scan`), then **Scan
+   a divot scan of hole 1", which calls `plan_scan`), then **Scan
    route**. The drone flies the coverage path. Every hidden divot that passes
    under the camera footprint at survey altitude gets one detection roll per
    scan; a hit becomes a pending task at the detected position. Rings turn
@@ -74,7 +75,7 @@ The agent plans every step and a person starts every flight
 | Placed divots, the simulated camera | [`backend/app/scan.py`](../../backend/app/scan.py) (`DivotField`, `footprint_m`) |
 | Agent tools | `plan_scan`, `get_tasks`, `plan_repair` in [`backend/app/agent.py`](../../backend/app/agent.py) |
 | API | `POST /api/field/divots` (add, remove, clear, scatter), `POST /api/scan`; `GET /api/queue` carries `field` |
-| Headless | `uv run python -m tools.fly_queue --divots 6 --scan-holes 2 3` |
+| Headless | `uv run python -m tools.fly_queue --divots 6 --scan-holes 1` |
 | Tests | [`backend/tests/test_scan.py`](../../backend/tests/test_scan.py), `test_plan_scan_and_repair_tools` in `test_agent.py`, `test_scan_then_repair_on_sitl` in `test_sitl_queue.py` |
 
 ### Running it
@@ -214,7 +215,10 @@ adds more. Faster charging is possible but wears the pack.
 - **A scan covers the selected cells, not the whole fairway.** `feature_cells`
   drops fairway slivers under 10 cells, so a divot on a sliver is never under
   the camera ("never under the camera" in the scan line). Seen in SITL on
-  hole 3 (2026-11-23).
+  hole 3 (2026-11-23). It matters on hole 1, the test hole: its fairway is a
+  4298 m² piece and a 448 m² sliver, so about 1 in 10 scattered divots lands
+  on the sliver and is never seen. With 6 divots and seeds 2 and 10 to 29, 6
+  of 21 scatters had one divot there.
 - **Scans have no charge stops.** A scan is one flight. `plan_scan` warns when
   it won't fit on one battery, but holes 4 and 6 alone are over the usable
   energy by the placeholder model, so they can't be scanned safely yet.

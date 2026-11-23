@@ -3,7 +3,7 @@
     cd backend
     uv run python -m tools.fly_queue --divots 20 --seed 1
     uv run python -m tools.fly_queue --divots 8 --holes 1 2 3 --charge-speedup 1000
-    uv run python -m tools.fly_queue --divots 8 --scan-holes 2 3 --charge-speedup 1000
+    uv run python -m tools.fly_queue --divots 8 --scan-holes 1 --charge-speedup 1000
 
 With --scan-holes the divots are placed hidden on those holes' fairways, the
 agent's plan_scan tool plans a scan of the same holes, the scan flies, and the

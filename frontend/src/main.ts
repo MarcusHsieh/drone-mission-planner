@@ -15,7 +15,7 @@ const groupColor = (id: number) => PALETTE[(id - 1) % PALETTE.length];
 const SUGGESTIONS = [
   "Survey the fairway on hole 4",
   "Add hole 5's fairway. What's the total area?",
-  "Plan a divot scan of holes 2 and 3",
+  "Plan a divot scan of hole 1",
   "Plan the repair run for what we found",
   "Clear the selection",
 ];

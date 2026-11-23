@@ -63,7 +63,7 @@ export function setupTasks(focus: (b: [number, number, number, number]) => void,
   });
   $("#btn-queue-run").addEventListener("click", () => act(api.queueRun));
   $("#btn-place").addEventListener("click", () => setPlacing(!placing));
-  $("#btn-scatter").addEventListener("click", () => act(() => api.placed({ op: "scatter", count: 10 })));
+  $("#btn-scatter").addEventListener("click", () => act(() => api.placed({ op: "scatter", count: 10, holes: [1] })));
   $("#btn-placed-clear").addEventListener("click", () => act(() => api.placed({ op: "clear" })));
   $("#btn-scan").addEventListener("click", () => {
     setPlacing(false);

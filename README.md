@@ -46,7 +46,7 @@ What it does:
 - **Scan, then repair**: place hidden divots on the map, fly a scan run whose
   simulated camera finds the ones under its footprint, then repair what it
   found with the task queue. The agent plans both ("plan a divot scan of
-  holes 2 and 3", "plan the repair run"); you start each flight.
+  hole 1", "plan the repair run"); you start each flight.
 - **Simulated drone**: Fly takes off from the dock, flies the preview, returns
   and lands, with live telemetry (mode, battery, altitude, speed, heading, GPS)
   over a WebSocket. Abort returns to the dock.
@@ -125,8 +125,8 @@ the backend.
    The divots and the planned legs show on the map; the drone flies a leg,
    lands, charges and flies the next, and the divots turn green as they are
    done.
-7. Or scan first: **Scatter 10** (or **Place on map**), ask the agent to
-   **plan a divot scan of holes 2 and 3**, press **Scan route**, then ask it to
+7. Or scan first: **Scatter 10 on hole 1** (or **Place on map**), ask the agent to
+   **plan a divot scan of hole 1**, press **Scan route**, then ask it to
    **plan the repair run** and press **Run queue**.
 
 ## Fly on ArduPilot SITL
