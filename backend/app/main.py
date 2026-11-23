@@ -26,6 +26,7 @@ from .geo import CELL_M
 from .sim import DroneSim
 from .sitl_drone import SitlDrone
 from .state import MissionState
+from .task_queue import TaskQueue
 from .w3w import W3WCache
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -39,6 +40,8 @@ if config.FLIGHT_BACKEND == "sitl":
     sim: DroneSim | SitlDrone = SitlDrone(course.frame, config.SITL_CONNECTION)
 else:
     sim = DroneSim(course.frame)
+# The task queue plans legs and drives the same vehicle link the Fly button uses.
+tasks = TaskQueue(course, sim)
 
 
 @asynccontextmanager
@@ -152,8 +155,59 @@ async def w3w_lookup(i: int, j: int) -> dict:
     return await run_in_threadpool(w3w.lookup, (i, j))
 
 
+class DivotReq(BaseModel):
+    count: int = Field(default=20, ge=1, le=200)
+    holes: list[int] | None = None
+    seed: int | None = None
+    replace: bool = True
+    service_s: float = Field(default=15.0, ge=0, le=600)
+
+
+@app.get("/api/queue")
+def queue_state() -> dict:
+    return tasks.snapshot()
+
+
+@app.post("/api/queue/divots")
+def queue_divots(req: DivotReq) -> dict:
+    try:
+        tasks.generate(req.count, req.holes, req.seed, req.replace, req.service_s)
+    except (RuntimeError, ValueError) as e:
+        raise HTTPException(409, str(e))
+    return tasks.snapshot()
+
+
+@app.post("/api/queue/clear")
+def queue_clear() -> dict:
+    try:
+        tasks.clear()
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+    return tasks.snapshot()
+
+
+@app.post("/api/queue/run")
+async def queue_run() -> dict:
+    try:
+        tasks.start()
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+    return tasks.snapshot()
+
+
+@app.post("/api/queue/abort")
+async def queue_abort() -> dict:
+    try:
+        tasks.abort()
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+    return tasks.snapshot()
+
+
 @app.post("/api/fly")
 async def fly() -> dict:
+    if tasks.running:
+        raise HTTPException(409, "The task queue is running. Abort it first.")
     route = state.route()
     if not route:
         raise HTTPException(400, "Preview a path first.")

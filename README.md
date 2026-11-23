@@ -36,6 +36,13 @@ What it does:
 - **Agent**: Claude (Haiku by default) with tool calls on top of the planner.
   "Survey the fairway on hole 4" pans the map, selects the fairway, fills in
   the stats and draws the path preview.
+- **Task queue with charge stops**: generate fake golf divots as tasks
+  (pending, active, done, failed). The planner splits the queue into legs
+  that each fit on one battery by a conservative, configurable energy model
+  (placeholders for a 4S 5000 mAh X500-class quad, not calibrated), and the
+  drone flies each leg, lands on the dock, charges (simulated) and flies the
+  next. The Tasks panel shows every leg's prediction next to what the vehicle
+  measured. See [Task queue, legs and charge stops](docs/concepts/task-queue.md).
 - **Simulated drone**: Fly takes off from the dock, flies the preview, returns
   and lands, with live telemetry (mode, battery, altitude, speed, heading, GPS)
   over a WebSocket. Abort returns to the dock.
@@ -91,6 +98,8 @@ For frontend development with hot reload, run the backend as above and
 | `SIM_SPEEDUP` | `5` | Simulated flight speed relative to real time (built-in sim only). |
 | `FLIGHT_BACKEND` | `sim` | `sim` for the built-in sim, `sitl` to fly on ArduPilot SITL. |
 | `SITL_CONNECTION` | `tcp:127.0.0.1:5760` | Where SITL's MAVLink port is (only with `FLIGHT_BACKEND=sitl`). |
+| `ENERGY_PACK_MAH`, `ENERGY_RESERVE_PCT`, `ENERGY_MARGIN`, `ENERGY_HOVER_A`, ... | `5000`, `30`, `1.15`, `20`, ... | The task queue's energy model. All placeholders; see [Task queue settings](docs/concepts/task-queue.md#settings-backendenv). |
+| `CHARGE_C`, `CHARGE_SPEEDUP` | `1.0`, `60` | Charge rate, and how much faster than real time simulated charging runs. |
 
 The agent's token use for each reply is shown under the reply and logged by
 the backend.
@@ -108,6 +117,10 @@ the backend.
    update and keep their numbers.
 5. Click **Preview path**, then **Fly**. Watch the simulated drone fly the
    route and land on the dock.
+6. Open the **Tasks** tab, click **Generate** (20 divots), then **Run queue**.
+   The divots and the planned legs show on the map; the drone flies a leg,
+   lands, charges and flies the next, and the divots turn green as they are
+   done.
 
 ## Fly on ArduPilot SITL
 
@@ -182,11 +195,13 @@ and that nothing else is using port 5760.
 docker compose -f sitl/compose.yaml up --build -d     # or SPEEDUP=10 for quick runs
 cd backend
 uv run python -m tools.fly_sitl --hole 2              # flies hole 2's fairway, prints a JSON report
+uv run python -m tools.fly_queue --divots 20 --charge-speedup 600   # a divot task queue in legs with charge stops
 SITL_TEST=1 uv run pytest tests/test_sitl_flight.py -s
 ```
 
 CI (`.github/workflows/ci.yml`) does the same on every PR and push to
-`main`: the backend tests, then hole 2 flown on SITL at 10x speed. The SITL
+`main`: the backend tests, then hole 2 flown on SITL at 10x speed and a
+14-divot task queue flown in legs with charge stops. The SITL
 image is kept in the GitHub Actions cache, so it only recompiles when
 `sitl/` changes.
 
@@ -194,9 +209,10 @@ image is kept in the GitHub Actions cache, so it only recompiles when
 
 Pass spacing assumes 15 m altitude, an 80 degree camera field of view and 70%
 sidelap (about 7.6 m between passes), flown at 5 m/s with 3 s per turn. The
-simulated battery is a straight line from 100% to 0% over 20 minutes of
-flight (a 6S pack like the airframe's, with a placeholder capacity). All of these are placeholders until the camera, airframe and battery
-are chosen.
+simulated battery follows the task queue's energy model: a 4S 5000 mAh
+pack drawing a fixed, uncalibrated current per flight phase. All of these are
+placeholders until the camera is chosen and the airframe's battery use is
+measured.
 
 ## Course data
 
@@ -218,14 +234,20 @@ backend/   FastAPI app: course model, grid, grouping, planner, agent, sim, w3w c
   app/state.py     the mission draft: selection, groups, previews, route
   app/agent.py     Claude tool-use loop and tools
   app/sim.py       simulated drone and telemetry
+  app/tasks.py     tasks and fake divots;  app/energy.py  the battery energy model
+  app/charge_plan.py  split a task queue into one-battery legs with charge stops
+  app/vehicle.py   the planner/vehicle boundary (LegMission, VehicleLink)
+  app/task_queue.py   fly the legs, update task status, charge between legs
   app/vitals.py    message log and health checks shared by the sim and SITL
   app/mavlink_mission.py  route -> ArduPilot mission items, MAVLink mission upload
   app/sitl_drone.py       flies the route on ArduPilot SITL (FLIGHT_BACKEND=sitl)
   tools/fly_sitl.py       headless SITL flight with a pass/fail report
+  tools/fly_queue.py      headless SITL task queue with charge stops
   tests/           pytest (the agent test uses a scripted client, no API calls)
 frontend/  Vite + TypeScript + MapLibre GL (+ three.js for the 3D view, src/view3d.ts)
   src/layout.ts    dashboard panels (dockview): default layout, save/restore, Panels menu
   src/panels.ts    instrument panels and message log; src/hud.ts the attitude indicator
+  src/tasks.ts     the Tasks panel and the divot and leg map layers
 sitl/      ArduPilot SITL in Docker (Dockerfile, compose.yaml, start script, parameters)
 ```
 
@@ -239,7 +261,8 @@ decomposition, course data, the agent) and a design decision log are in
 
 ## Not in M1
 
-Brush selection, the agent's `select_box` tool, sorties and battery-based
-charge stops (including the autonomous recharge loop on SITL), saved missions,
-and Docker for the planner itself. These are planned
+Brush selection, the agent's `select_box` tool, charge stops for survey
+routes (the task queue has them; the Fly button doesn't), precision landing
+and real charging on the dock, saved missions, and Docker for the planner
+itself. These are planned
 for M2 and M3.

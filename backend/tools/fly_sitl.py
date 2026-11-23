@@ -92,6 +92,7 @@ def fly(hole: int, feature: str, connection: str, timeout_s: float, quiet: bool 
         and not drone.v["armed"]
         and report["landed_from_dock_m"] <= LAND_TOLERANCE_M
     )
+    drone.close()
     return report
 
 

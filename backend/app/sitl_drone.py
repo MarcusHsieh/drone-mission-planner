@@ -10,6 +10,12 @@ frontend don't change. Instead of moving a point along the route itself, it
 
 Abort switches to RTL, which flies back to where it armed (the dock) and lands.
 
+It is also the task queue's vehicle link (see vehicle.py): `start_leg` flies
+one leg as a mission with a hold at each task, `leg_progress` reads which
+tasks are done from the mission sequence, and `recharge` resets the battery
+monitor after a simulated charge. Nothing else here is SITL-specific: point
+SITL_CONNECTION at a real Pixhawk and the same code flies it.
+
 Threads: pymavlink is blocking, so one reader thread owns the socket. It keeps
 the latest telemetry and forwards every message to an inbox that the flight
 thread reads while it uploads and arms. An asyncio task publishes telemetry to
@@ -35,6 +41,7 @@ from pymavlink import mavutil  # noqa: E402
 from . import mavlink_mission as mm
 from . import vitals
 from .geo import LocalFrame
+from .vehicle import LegMission, LegProgress
 
 log = logging.getLogger(__name__)
 mavlink = mavutil.mavlink
@@ -60,6 +67,7 @@ class SitlDrone:
         self._flight: threading.Thread | None = None
         self._pump: asyncio.Task | None = None
         self._lock = threading.Lock()
+        self._closed = threading.Event()
         self.abort_requested = False
         self.statustext: list[str] = []
         self.v: dict[str, Any] = {
@@ -89,6 +97,11 @@ class SitlDrone:
         self.arm_boot_ms: int | None = None
         self.arm_wall: float | None = None
         self.phase = "IDLE"  # IDLE, PREPARING, FLYING, DONE, FAILED
+        self.leg: LegMission | None = None
+        self.task_seqs: dict[str, dict[str, int]] = {}
+        self._max_seq = 0  # highest MISSION_CURRENT seen in AUTO during this flight
+        self.leg_start_mah: float | None = None
+        self.flight_s: float | None = None  # arm to disarm, autopilot time
         self.message = "Waiting for ArduPilot SITL" if not self.connected else "On dock, ready"
 
     @property
@@ -238,8 +251,18 @@ class SitlDrone:
             await asyncio.sleep(TICK_S)
 
     # -- reader thread -----------------------------------------------------------
+    def close(self) -> None:
+        """Stop the reader and free the MAVLink port (SITL's serial ports take one client)."""
+        self._closed.set()
+        m = self.master
+        if m is not None:
+            try:
+                m.close()
+            except Exception:  # noqa: BLE001
+                pass
+
     def _reader(self) -> None:
-        while True:
+        while not self._closed.is_set():
             try:
                 log.info("Connecting to SITL at %s", self.connection)
                 m = mavutil.mavlink_connection(self.connection, source_system=255, source_component=190)
@@ -257,7 +280,7 @@ class SitlDrone:
                     self.message = "On dock, ready"
                 log.info("Connected to SITL (system %s)", m.target_system)
                 last_rx = time.monotonic()
-                while True:
+                while not self._closed.is_set():
                     msg = m.recv_match(blocking=True, timeout=1.0)
                     if msg is None:
                         if time.monotonic() - last_rx > 5:
@@ -287,9 +310,13 @@ class SitlDrone:
             v["system_status"] = vitals.MAV_STATE.get(msg.system_status, str(msg.system_status))
             armed = bool(msg.base_mode & mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
             if armed and not v["armed"]:
+                # Battery reading at takeoff, so a leg's mAh is measured from here (after any recharge).
+                self.leg_start_mah = v["consumed_mah"]
                 self.arm_boot_ms = v["boot_ms"]
                 self.arm_wall = time.monotonic()
                 self.track = []
+            if not armed and v["armed"] and self.arm_boot_ms is not None:
+                self.flight_s = (v["boot_ms"] - self.arm_boot_ms) / 1000
             if armed != v["armed"]:
                 self.msglog.add("Armed" if armed else "Disarmed", vitals.NOTICE, "planner")
             v["armed"] = armed
@@ -351,6 +378,8 @@ class SitlDrone:
             v["wp_dist"], v["xtrack"] = msg.wp_dist, round(msg.xtrack_error, 1)
         elif t == "MISSION_CURRENT":
             v["mission_seq"] = msg.seq
+            if self.phase == "FLYING" and v["armed"] and v["ap_mode"] == "AUTO" and msg.seq < len(self.items):
+                self._max_seq = max(self._max_seq, msg.seq)
         elif t == "MISSION_ITEM_REACHED":
             if self.flying and msg.seq not in self.reached and msg.seq in self._waypoint_seqs:
                 self.reached.append(msg.seq)
@@ -416,6 +445,14 @@ class SitlDrone:
         raise FlightError(f"Could not arm within {READY_TIMEOUT_S} s. {self.message}")
 
     def start(self, waypoints: list[tuple[float, float]]) -> None:
+        self._begin(lambda: mm.build_mission(waypoints, self.frame), waypoints, None, {})
+
+    def start_leg(self, leg: LegMission) -> None:
+        items, where = mm.build_leg_mission(leg, self.frame)
+        pts = [(0.0, 0.0)] + [(w.x, w.y) for w in leg.waypoints] + [(0.0, 0.0)]
+        self._begin(lambda: items, pts, leg, where)
+
+    def _begin(self, build, route_xy, leg: LegMission | None, where: dict) -> None:
         with self._lock:
             if self.flying:
                 raise RuntimeError("Already flying")
@@ -425,12 +462,60 @@ class SitlDrone:
                 raise RuntimeError("The vehicle is already armed")
             self._reset_flight()
             self.abort_requested = False
-            self.items = mm.build_mission(waypoints, self.frame)
+            self.items = build()
+            self.leg, self.task_seqs = leg, where
+            self.leg_start_mah = self.v["consumed_mah"]
             self._waypoint_seqs = set(mm.nav_seqs(self.items))
-            self.route_m = sum(math.dist(a, b) for a, b in zip(waypoints, waypoints[1:]))
+            self.route_m = sum(math.dist(a, b) for a, b in zip(route_xy, route_xy[1:]))
             self.phase = "PREPARING"
             self._flight = threading.Thread(target=self._fly, name="sitl-flight", daemon=True)
             self._flight.start()
+
+    def leg_progress(self) -> LegProgress:
+        """Which tasks of the current leg are done, from the mission sequence.
+
+        A task is done once the autopilot has moved past its service waypoint
+        (the hold finished and it is climbing out), and active from when the
+        autopilot heads for its approach waypoint until then.
+        """
+        p = LegProgress(finished=self.phase in ("DONE", "FAILED", "IDLE"), ok=self.phase != "FAILED", message=self.message)
+        if self.leg is None:
+            return p
+        reached = set(self.reached)
+        for tid in self.leg.task_ids:
+            s = self.task_seqs[tid]
+            if self._max_seq > s["service"] or s["depart"] in reached:
+                p.done_tasks.append(tid)
+            elif p.active_task is None and not self.abort_requested and self.v["ap_mode"] == "AUTO" and self._max_seq >= s["approach"]:
+                p.active_task = tid
+        p.flight_s = self.flight_s
+        if self.leg_start_mah is not None and self.v["consumed_mah"] is not None:
+            p.consumed_mah = float(self.v["consumed_mah"] - self.leg_start_mah)
+        p.returning = self.abort_requested or (self.phase == "FLYING" and self.v["armed"] and self.v["ap_mode"] not in ("AUTO", "GUIDED"))
+        return p
+
+    def return_to_dock(self) -> None:
+        self.abort()
+
+    def recharge(self) -> None:
+        """Simulated charge: tell the autopilot's battery monitor the pack is full.
+
+        MAV_CMD_BATTERY_RESET (ArduPilot) sets the remaining capacity, which is
+        right for SITL. On a real vehicle the pack really is swapped or charged,
+        and this should wait for the dock to report it full instead.
+        """
+        if self.master is None or self.flying:
+            raise RuntimeError("Can only recharge on the dock while connected")
+        self._inbox = queue.Queue(maxsize=500)
+        self._listening.set()
+        try:
+            res = self._command(mavlink.MAV_CMD_BATTERY_RESET, 0xFF, 100)
+        finally:
+            self._listening.clear()
+        if res == mavlink.MAV_RESULT_ACCEPTED:
+            self.msglog.add("Battery monitor reset to 100% after the simulated charge", vitals.INFO, "planner")
+        else:
+            self.msglog.add(f"Autopilot did not accept BATTERY_RESET (result {res})", vitals.WARNING, "planner")
 
     def _fly(self) -> None:
         self._inbox = queue.Queue(maxsize=500)
@@ -458,7 +543,17 @@ class SitlDrone:
                     raise FlightError("Lost the SITL connection in flight")
                 if not self.abort_requested:
                     total = len(self._waypoint_seqs)
-                    if self._display_mode() == "LAND":
+                    if self.leg is not None:
+                        lp = self.leg_progress()
+                        n = len(self.leg.task_ids)
+                        where = f"{lp.active_task} in progress" if lp.active_task else "in transit"
+                        if self._display_mode() == "LAND":
+                            self.message = f"Leg {self.leg.index}: landing on the dock ({len(lp.done_tasks)} of {n} tasks done)"
+                        elif self._display_mode() == "TAKEOFF":
+                            self.message = f"Leg {self.leg.index}: taking off from the dock"
+                        else:
+                            self.message = f"Leg {self.leg.index}: {where}, {len(lp.done_tasks)} of {n} tasks done"
+                    elif self._display_mode() == "LAND":
                         self.message = f"Landing on the dock ({len(self.reached)} of {total} waypoints reached)"
                     elif self._display_mode() == "TAKEOFF":
                         self.message = "Taking off from the dock"

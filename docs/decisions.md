@@ -251,3 +251,40 @@ browser; QGC is a Qt desktop app).
 who is in control and add confirmations), or we need layouts shared between
 people (then store them on the backend).
 See [Flight dashboard](concepts/dashboard.md).
+
+## D10. Route first, split second for charge stops, with a conservative energy model
+
+**Status:** accepted (2026-11-23)
+
+**Decision.** A task queue is split into battery-sized legs by building one
+tour through every task (`planner.plan_tour`), cutting it into legs with an
+exact dynamic program (fewest legs, then least energy), and re-ordering the
+stops inside each leg. Each leg must land with a 30% reserve by an energy
+model that uses a fixed current per flight phase times a 1.15 margin. The
+currents are placeholders for an X500 V2 class quad on 4S 5000 mAh, set on
+the high side, and labelled uncalibrated everywhere they show. The planner
+outputs plain legs (`charge_plan.LegPlan`); a vehicle link (`vehicle.py`)
+flies them, so the built-in sim, SITL and later a real Pixhawk are swapped by
+configuration, not by changing the planner.
+
+**Why.** It reuses the tour planner we already trust, needs no new
+dependency, runs in well under a second for 60 tasks, and the split is exact
+for a given tour. A fixed-current model is the simplest thing that can be
+calibrated from two logged flights (a hover and a survey leg), and being
+conservative before calibration means extra charge stops, not a drone that
+runs flat over a fairway. Re-planning only when a leg ends early keeps the
+plan on screen the plan that flies.
+
+**Alternatives.** A full capacitated vehicle routing solver such as Google
+OR-Tools (better balanced legs, a large dependency, slower to explain).
+Greedy splitting (fill each leg until the next task doesn't fit; simple but
+can need more legs than the exact split). An energy model from rotor physics
+(more accurate in principle, but it needs airframe data we don't have yet).
+Re-planning after every leg (adapts to measured use, but the plan shown keeps
+changing and can come out with more legs).
+
+**Revisit if** the measured mAh per leg (shown next to the prediction)
+differs a lot from the model after calibration, legs come out badly
+unbalanced in practice, or tasks need time windows or priorities (then a real
+VRP solver earns its place).
+See [Task queue, legs and charge stops](concepts/task-queue.md).

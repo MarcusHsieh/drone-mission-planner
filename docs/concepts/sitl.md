@@ -15,9 +15,10 @@ everything else (selection, groups, previews, the agent) is unchanged.
 | Arm, fly, abort, telemetry over MAVLink | [`backend/app/sitl_drone.py`](../../backend/app/sitl_drone.py) (`SitlDrone`) |
 | Which backend, where SITL is | [`backend/app/config.py`](../../backend/app/config.py) (`FLIGHT_BACKEND`, `SITL_CONNECTION`) |
 | Headless flight with a pass/fail report | [`backend/tools/fly_sitl.py`](../../backend/tools/fly_sitl.py) |
+| Task-queue legs as missions, recharge | `build_leg_mission` in `mavlink_mission.py`; `start_leg`, `leg_progress`, `recharge` in `sitl_drone.py`; headless run in [`backend/tools/fly_queue.py`](../../backend/tools/fly_queue.py). See [Task queue](task-queue.md) |
 | SITL container, start script, parameters | [`sitl/`](../../sitl/) (`Dockerfile`, `compose.yaml`, `run-sitl.sh`, `planner.parm`) |
-| Tests | [`backend/tests/test_mavlink_mission.py`](../../backend/tests/test_mavlink_mission.py) (no SITL needed), [`backend/tests/test_sitl_flight.py`](../../backend/tests/test_sitl_flight.py) (flies on SITL, skipped unless `SITL_TEST=1`) |
-| CI: backend tests, then the SITL flight test against the cached image | [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) |
+| Tests | [`backend/tests/test_mavlink_mission.py`](../../backend/tests/test_mavlink_mission.py) (no SITL needed), [`backend/tests/test_sitl_flight.py`](../../backend/tests/test_sitl_flight.py) and [`test_sitl_queue.py`](../../backend/tests/test_sitl_queue.py) (fly on SITL, skipped unless `SITL_TEST=1`) |
+| CI: backend tests, then the SITL flight and task queue tests against the cached image | [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) |
 
 The mission for a route (dock, survey points, dock) is:
 
@@ -31,6 +32,14 @@ The mission for a route (dock, survey points, dock) is:
 
 Altitudes are relative to home, so the dock's height above sea level does not
 matter.
+
+A task-queue leg uses the same frame (home, takeoff, speed, ..., `NAV_LAND`
+at the dock), with three `NAV_WAYPOINT`s per task: over it at cruise
+altitude, down at the service altitude with a hold (param1, seconds), and
+back up. A task counts as done once `MISSION_CURRENT` moves past its service
+waypoint (the hold is over) or the autopilot reports reaching the climb-out
+waypoint. Between legs, `recharge` sends `MAV_CMD_BATTERY_RESET` so the
+battery monitor reads full again; that is simulation only.
 
 ![Hole 1's fairway flown on ArduPilot SITL from the Fly button: 7 of 26 waypoints reached, 5x speedup](../img/sitl-flight-hole-1.png)
 
@@ -241,8 +250,10 @@ commands from the ground station one at a time.
   parameter file, plus tuning.
 - **One vehicle, one flight at a time, fresh at every start.** `run-sitl.sh`
   starts with `-w`, so every start is the same clean vehicle on the dock.
-- **Recharge is not in this yet.** The hooks for it later are the battery
-  telemetry (`SYS_STATUS`, `BATTERY_STATUS`), splitting a route into sorties
-  that each end in `NAV_LAND` at the dock, and precision landing on the dock
-  (ArduPilot's `PLND_` parameters, which SITL can simulate with a fake
-  IR-LOCK beacon).
+- **Recharge is simulated.** The task queue splits its work into legs that
+  each end in `NAV_LAND` at the dock and "charges" between them by waiting and
+  resetting the battery monitor (`MAV_CMD_BATTERY_RESET`); see
+  [Task queue](task-queue.md). Survey routes from the Fly button still fly as
+  one sortie. Still missing: precision landing on the dock (ArduPilot's
+  `PLND_` parameters, which SITL can simulate with a fake IR-LOCK beacon) and
+  a dock that reports charging.
