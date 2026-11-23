@@ -6,7 +6,7 @@ import { LocalFrame } from "./geo";
 import { Flight3D } from "./view3d";
 import { Dashboard } from "./layout";
 import { setupPanels, updatePanels } from "./panels";
-import { addTaskLayers, clickDivot, queueRunning, setupTasks } from "./tasks";
+import { addTaskLayers, clickDivot, queueRunning, refreshTaskButtons, setRouteCheck, setupTasks } from "./tasks";
 
 // Distinct, readable on satellite imagery.
 const PALETTE = ["#22d3ee", "#f472b6", "#facc15", "#a78bfa", "#fb923c", "#4ade80", "#60a5fa", "#f87171"];
@@ -15,6 +15,8 @@ const groupColor = (id: number) => PALETTE[(id - 1) % PALETTE.length];
 const SUGGESTIONS = [
   "Survey the fairway on hole 4",
   "Add hole 5's fairway. What's the total area?",
+  "Plan a divot scan of holes 2 and 3",
+  "Plan the repair run for what we found",
   "Clear the selection",
 ];
 
@@ -483,6 +485,7 @@ function updateButtons() {
   $<HTMLButtonElement>("#btn-clear").disabled = !hasGroups;
   $<HTMLButtonElement>("#btn-fly").disabled = flying || !state?.route || queueRunning();
   $<HTMLButtonElement>("#btn-abort").disabled = !flying;
+  refreshTaskButtons();
 }
 
 function setupButtons() {
@@ -554,7 +557,7 @@ function setView(mode: ViewMode) {
 // if Google fails, the boxes stay. Nothing 3D is fetched until the first
 // switch to 3D or Chase.
 const GROUND_OVERLAYS = ["fairway-fill", "fairway-line", "green-line", "tee-line", "bunker-line", "water-line", "hole-line",
-  "cells-fill", "cells-outline", "route-transit", "path-casing", "path", "trail", "legs-planned", "legs-flown", "divots"];
+  "cells-fill", "cells-outline", "route-transit", "path-casing", "path", "trail", "legs-planned", "legs-flown", "placed", "divots"];
 let buildingsRequested = false;
 let photorealNote = "";
 let attributionTimer = 0;
@@ -687,6 +690,7 @@ async function boot() {
   setupSelection();
   setupChat();
   setupButtons();
+  setRouteCheck(() => !!state?.route);
   setupTasks(focus, toast);
   setupViews();
   renderState(await api.state());

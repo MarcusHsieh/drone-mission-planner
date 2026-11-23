@@ -16,6 +16,7 @@ import anthropic
 
 from . import config
 from .course import DEFAULT_CORRIDOR_M, Course
+from .energy import estimate_leg
 from .state import MissionState
 
 log = logging.getLogger("agent")
@@ -71,6 +72,42 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "plan_scan",
+        "description": (
+            "Plan a scan run that looks for divots: replaces the selection with the given holes' feature "
+            "(default fairway), plans the coverage path, focuses the map, and estimates the energy against one "
+            "battery. Returns the route, whether it fits on one battery, and the estimate per hole so you can split "
+            "a scan that doesn't fit. The user starts the scan with the Scan button."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "holes": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": 9}, "minItems": 1},
+                "feature": {"type": "string", "enum": ["fairway", "green", "corridor"], "description": "Default fairway."},
+            },
+            "required": ["holes"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "get_tasks",
+        "description": (
+            "The divot task queue and scan results: how many divots the user placed (positions are hidden), how many "
+            "scans found, the last scan's found / missed / not covered counts, task counts by status, and the "
+            "planned repair legs with charge stops."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "plan_repair",
+        "description": (
+            "Re-plan the repair run for every pending task: legs that each fit on one battery, with charge stops "
+            "between them. Returns the legs (tasks, distance, time, predicted mAh, battery on landing, charge after) "
+            "and the total. The user starts it with Run queue."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
         "name": "preview_path",
         "description": "Plan coverage passes over groups (split around doglegs and gaps, best sweep angle) and return length and estimated flight time. Omit group_ids to preview every group.",
         "input_schema": {
@@ -102,13 +139,21 @@ How to work:
 - If a request is ambiguous or not possible (a hole outside 1-9, a feature that isn't mapped), say so instead of guessing.
 - Flights are started by the user with the Fly button; you cannot fly the drone.
 
+Divot scan and repair (the Tasks panel):
+- The user places divots on the map. Their positions are hidden from you and from the planner until a scan finds them.
+- A scan run flies a coverage path with the camera on. For "scan holes 2-4" call plan_scan. If it doesn't fit on one battery, say so and offer separate scans (use per_hole to group holes that fit). The user presses Scan.
+- Found divots become pending tasks. For "repair what we found" call plan_repair and report the legs and charge stops. The user presses Run queue.
+- Use get_tasks for status. Battery numbers come from an uncalibrated placeholder model; call them estimates.
+
 Reply in plain text, 1 to 3 short sentences, using the numbers from the tools (area in m2, path length in m, time in minutes and seconds)."""
 
 
 class Agent:
-    def __init__(self, course: Course, state: MissionState) -> None:
+    def __init__(self, course: Course, state: MissionState, tasks=None, field=None) -> None:
         self.course = course
         self.state = state
+        self.tasks = tasks  # task_queue.TaskQueue, for the divot tools
+        self.field = field  # scan.DivotField
         self.messages: list[dict[str, Any]] = []
         self.lock = threading.Lock()
         self._system = system_prompt(course)
@@ -166,6 +211,17 @@ class Agent:
                 return {"error": "Nothing to focus on: no such hole or group, or the selection is empty."}
             actions.append({"type": "focus", "bounds": bounds})
             return {"ok": True}
+        if name == "plan_scan":
+            return self._plan_scan(args, actions)
+        if name == "get_tasks":
+            return self._tasks_brief()
+        if name == "plan_repair":
+            if self.tasks is None:
+                return {"error": "The task queue isn't available."}
+            if self.tasks.running:
+                return {"error": "The queue is already running."}
+            self.tasks.replan()
+            return self._tasks_brief()
         if name == "preview_path":
             ids = args.get("group_ids") or None
             done = self.state.preview(ids)
@@ -174,6 +230,74 @@ class Agent:
             actions.append({"type": "preview", "group_ids": done})
             return {"previewed": done, **self._groups_brief()}
         return {"error": f"Unknown tool {name}"}
+
+    def _plan_scan(self, args: dict, actions: list[dict]) -> dict:
+        from shapely.ops import unary_union
+
+        holes = sorted({int(h) for h in args["holes"]})
+        feature = args.get("feature") or "fairway"
+        bad = [h for h in holes if h not in self.course.holes or self.course.holes[h].area(feature) is None]
+        if bad:
+            return {"error": f"No mapped {feature} on hole(s) {bad}. Holes 1-9 only; try 'corridor'."}
+        model = self.tasks.model if self.tasks is not None else None
+        per_hole = []
+        cells_all: set = set()
+        for h in holes:
+            cells = self.course.feature_cells(h, feature)
+            cells_all |= cells
+            if model is not None:
+                probe = MissionState(self.course)
+                probe.edit("add", cells)
+                probe.preview()
+                r = probe.route()
+                if r:
+                    e = estimate_leg(model, r["waypoints"][1:-1], 0.0, model.cruise_alt_m)
+                    per_hole.append({"hole": h, "route_m": round(r["total_m"]), "mah": round(e.mah), "minutes": round(e.time_s / 60, 1)})
+        self.state.clear()
+        self.state.clear_previews()
+        self.state.edit("add", cells_all)
+        done = self.state.preview()
+        route = self.state.route()
+        if not route:
+            return {"error": "Nothing to scan there."}
+        actions.append({"type": "preview", "group_ids": done})
+        parts = [self.course.holes[h].line.buffer(25) for h in holes]
+        actions.append({"type": "focus", "bounds": self.course.lonlat_bounds(unary_union(parts))})
+        out: dict[str, Any] = {"holes": holes, "feature": feature, "route_m": round(route["total_m"]), "groups": len(done)}
+        if model is not None:
+            e = estimate_leg(model, route["waypoints"][1:-1], 0.0, model.cruise_alt_m)
+            out.update(
+                est_minutes=round(e.time_s / 60, 1),
+                est_mah=round(e.mah),
+                usable_mah_per_battery=round(model.usable_mah),
+                fits_one_battery=e.mah <= model.usable_mah,
+                per_hole=per_hole,
+                note="Scans fly as one flight with no charge stops. Energy is an uncalibrated estimate.",
+            )
+        if self.field is not None:
+            out["camera_footprint_m"] = self.field.snapshot()["camera"]["footprint_m"]
+        return out
+
+    def _tasks_brief(self) -> dict:
+        if self.tasks is None:
+            return {"error": "The task queue isn't available."}
+        q = self.tasks.snapshot()
+        out: dict[str, Any] = {
+            "phase": q["phase"],
+            "message": q["message"],
+            "counts": q["counts"],
+            "legs": [
+                {k: leg[k] for k in ("index", "status", "task_ids", "distance_m", "time_s", "mah", "end_pct", "charge_after_s")}
+                for leg in q["legs"]
+            ],
+            "remaining": q["remaining"],
+        }
+        if self.field is not None:
+            f = self.field.snapshot()
+            # Only what a real drone would know: how many it found. Misses and true
+            # positions are the simulation's ground truth, shown to the user, not to you.
+            out["scan"] = {"scans_flown": f["scans"], "scanning": f["scanning"], "divots_found": f["found"]}
+        return out
 
     def _focus_bounds(self, args: dict) -> list[float] | None:
         from shapely.ops import unary_union

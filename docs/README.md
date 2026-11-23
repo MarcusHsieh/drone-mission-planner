@@ -60,6 +60,8 @@ For setup, running the app and the demo script, see the [main README](../README.
 | **Charge stop** | Time on the dock between two legs while the pack charges (simulated). |
 | **Energy model** | The planner's prediction of current draw per flight phase (hover, cruise, climb, descent), with a reserve and a safety margin. Placeholders until calibrated on the real airframe. |
 | **Reserve** | The share of the pack a leg must still have when it lands, by the model. |
+| **Placed divot** | A divot the user puts on the map in simulation: the ground truth a scan has to find. Hidden from the planner and the agent. |
+| **Scan run** | A coverage flight with the (simulated) camera on; divots it finds become pending tasks. |
 | **Vehicle link** | The code that flies one leg and reports progress: the built-in sim, or ArduPilot over MAVLink (SITL now, a real Pixhawk later). |
 
 ## Keeping these docs current
@@ -89,7 +91,7 @@ assistants alike.
 | `backend/app/agent.py` (tools, system prompt, loop), agent settings in `config.py` | [Agent](concepts/agent.md) |
 | `backend/app/mavlink_mission.py`, `backend/app/sitl_drone.py`, `backend/tools/fly_sitl.py`, `sitl/`, `.github/workflows/ci.yml`, SITL settings in `config.py` | [ArduPilot SITL and MAVLink missions](concepts/sitl.md) |
 | `frontend/src/layout.ts`, `panels.ts`, `hud.ts`, panel contents in `frontend/index.html`, `backend/app/vitals.py`, telemetry fields in `sim.py` or `sitl_drone.py` | [Flight dashboard](concepts/dashboard.md) |
-| `backend/app/tasks.py`, `energy.py`, `charge_plan.py`, `vehicle.py`, `task_queue.py`, `start_leg`/`leg_progress`/`recharge` in `sim.py` or `sitl_drone.py`, `build_leg_mission`, `backend/tools/fly_queue.py`, `frontend/src/tasks.ts` | [Task queue, legs and charge stops](concepts/task-queue.md) |
+| `backend/app/tasks.py`, `energy.py`, `charge_plan.py`, `vehicle.py`, `task_queue.py`, `start_leg`/`leg_progress`/`recharge` in `sim.py` or `sitl_drone.py`, `build_leg_mission`, `backend/app/scan.py`, `backend/tools/fly_queue.py`, `frontend/src/tasks.ts` | [Task queue, legs and charge stops](concepts/task-queue.md) |
 | A new concept with no page yet (for example sorties, charging, SITL) | A new page in `concepts/` with the same three sections, linked from the table above |
 | A choice between real alternatives that someone would ask about later | A new entry in [decisions](decisions.md) (add new entries, never rewrite old ones) |
 | New terms | The glossary above |

@@ -3,6 +3,11 @@
     cd backend
     uv run python -m tools.fly_queue --divots 20 --seed 1
     uv run python -m tools.fly_queue --divots 8 --holes 1 2 3 --charge-speedup 1000
+    uv run python -m tools.fly_queue --divots 8 --scan-holes 2 3 --charge-speedup 1000
+
+With --scan-holes the divots are placed hidden on those holes' fairways, the
+agent's plan_scan tool plans a scan of the same holes, the scan flies, and the
+queue repairs only what the scan found (the scan-then-repair flow).
 
 It generates fake divots, plans legs with charge stops, and flies every leg on
 SITL through the same TaskQueue and vehicle link the web app uses. Charging is
@@ -23,8 +28,11 @@ import time
 
 from app import config
 from app.course import Course
+from app.agent import Agent
 from app.energy import EnergyModel
+from app.scan import DivotField
 from app.sitl_drone import SitlDrone
+from app.state import MissionState
 from app.task_queue import TaskQueue
 
 LAND_TOLERANCE_M = 3.0
@@ -43,7 +51,29 @@ async def run(args) -> dict:
             raise SystemExit(f"No MAVLink heartbeat from {args.connection} after 60 s. Is SITL running?")
         await asyncio.sleep(0.5)
     q = TaskQueue(course, drone, model)
-    q.generate(args.divots, args.holes, args.seed, service_s=args.service_s)
+    scan_report = None
+    if args.scan_holes:
+        field = DivotField(course, q, drone, seed=args.seed)
+        field.scatter(args.divots, args.scan_holes, args.seed)
+        state = MissionState(course)
+        plan = Agent(course, state, q, field).run_tool("plan_scan", {"holes": args.scan_holes}, [])
+        print(f"Scan plan: {plan}", flush=True)
+        if "error" in plan:
+            raise SystemExit(plan["error"])
+        field.start_scan(state.route()["waypoints"])
+        t0 = time.monotonic()
+        while field.scanning:
+            tel = drone.telemetry()
+            print(f"[{time.monotonic() - t0:5.0f}s] scan     {tel['mode']:<9} alt {tel['alt_m']:5.1f} m  found {field.snapshot()['found']}  {tel['message']}", flush=True)
+            await asyncio.sleep(2.0)
+        scan_report = {k: v for k, v in field.snapshot().items() if k != "placed"}
+        scan_report["fits_one_battery"] = plan.get("fits_one_battery")
+        print(f"Scan result: {scan_report}", flush=True)
+        if not q.tasks:
+            raise SystemExit("The scan found nothing to repair")
+        await q._top_up("after the scan")
+    else:
+        q.generate(args.divots, args.holes, args.seed, service_s=args.service_s)
     plan0 = q.snapshot()
     planned_legs = len(plan0["legs"])
     print(f"{len(plan0['tasks'])} divots, planned {planned_legs} legs:", flush=True)
@@ -75,6 +105,7 @@ async def run(args) -> dict:
         ],
         "energy_model": {k: s["energy"][k] for k in ("pack_mah", "reserve_pct", "margin", "hover_a", "cruise_a", "calibrated")},
         "wall_s": round(time.monotonic() - t0),
+        "scan": scan_report,
     }
     report["ok"] = (
         s["phase"] == "done"
@@ -93,6 +124,7 @@ def main() -> None:
     ap.add_argument("--divots", type=int, default=20)
     ap.add_argument("--holes", type=int, nargs="*", default=None)
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--scan-holes", type=int, nargs="*", default=None, help="place the divots hidden on these holes and find them with a scan first")
     ap.add_argument("--service-s", type=float, default=15.0)
     ap.add_argument("--charge-speedup", type=float, default=None, help="override CHARGE_SPEEDUP for a quick run")
     ap.add_argument("--connection", default=config.SITL_CONNECTION)
