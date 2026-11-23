@@ -27,7 +27,6 @@ def test_footprint_matches_pass_spacing():
 
 def test_place_scan_then_repair(monkeypatch):
     monkeypatch.setattr(config, "SIM_SPEEDUP", 60.0)
-    monkeypatch.setattr(scan, "DETECT_P", 1.0)
     monkeypatch.setattr(appmain.tasks, "model", dataclasses.replace(appmain.tasks.model, charge_speedup=1e6))
     with TestClient(appmain.app) as c:
         c.post("/api/queue/clear")
@@ -47,8 +46,9 @@ def test_place_scan_then_repair(monkeypatch):
         assert c.post("/api/queue/run").status_code == 409  # scan flying
         s = _wait(c, lambda s: not s["field"]["scanning"] and s["field"]["last_scan"])
         f = s["field"]
-        # Every divot on hole 1's fairway is found (detection forced to 1.0); hole 9's is never under the camera.
+        # Every divot under the camera is found (no simulated misses); hole 9's is never under the camera.
         assert f["last_scan"]["not_covered"] >= 1
+        assert all(d["found_task"] for d in f["placed"] if d["seen"])
         found = [d for d in f["placed"] if d["found_task"]]
         assert len(found) == len(s["tasks"]) >= 4
         assert all(d["found_error_m"] < 3 for d in found)

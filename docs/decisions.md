@@ -294,12 +294,12 @@ See [Task queue, legs and charge stops](concepts/task-queue.md).
 **Status:** accepted (2026-11-23)
 
 **Decision.** In simulation the user places hidden divots, a scan run finds
-the ones that pass under the camera footprint (with a detection probability
-and a position error), and the found ones become tasks for the repair queue.
+every one that passes under the camera footprint (with a position error,
+and no simulated misses), and the found ones become tasks for the repair queue.
 The agent can plan scans (`plan_scan`) and repairs (`plan_repair`) and read
 the results, but it cannot start a scan, a queue run or any flight: a person
 presses Scan route or Run queue. The agent sees only what the drone would
-know (how many it found), not the hidden positions or the misses.
+know (how many it found), not the hidden positions or how many there are.
 
 **Why.** mj chose "agent plans, you press Fly/Run" when the scan tools were
 added. The same code will drive a real Pixhawk, so keeping a person on every

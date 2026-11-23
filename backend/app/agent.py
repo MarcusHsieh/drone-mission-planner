@@ -92,8 +92,8 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "get_tasks",
         "description": (
-            "The divot task queue and scan results: how many divots the user placed (positions are hidden), how many "
-            "scans found, the last scan's found / missed / not covered counts, task counts by status, and the "
+            "The divot task queue and scan results: how many divots scans have found (never the hidden "
+            "placed divots or their positions), task counts by status, and the "
             "planned repair legs with charge stops."
         ),
         "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},

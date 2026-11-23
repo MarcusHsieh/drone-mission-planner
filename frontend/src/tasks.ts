@@ -184,8 +184,8 @@ function drawMap(s: QueueState) {
     type: "FeatureCollection",
     features: s.field.placed.map((d) => ({
       type: "Feature",
-      // White: hidden, not found yet. Orange: was under the camera and missed. Green: found.
-      properties: { id: d.id, color: d.found_task ? "#4ade80" : d.missed ? "#fb923c" : "#f8fafc" },
+      // White: hidden, not found yet. Green: found.
+      properties: { id: d.id, color: d.found_task ? "#4ade80" : "#f8fafc" },
       geometry: { type: "Point", coordinates: [d.lon, d.lat] },
     })),
   });
@@ -241,8 +241,8 @@ function drawPanel(s: QueueState) {
   $("#field-status").innerHTML = f.scanning
     ? `<b>Scanning…</b> ${f.found} found so far.`
     : f.placed.length || f.scans
-      ? `${f.placed.length} placed (hidden from the planner, white rings) · ${f.found} found by scans${ls ? `. Last scan: ${ls.found} found, ${ls.missed_in_view} under the camera but missed (orange), ${ls.not_covered} never under the camera.` : "."}${f.mean_error_m != null ? ` Found positions are ${f.mean_error_m} m off on average.` : ""}`
-      : `Place divots on the map, preview a path over them (or ask the agent to plan a scan), then Scan route. The camera sees a ${f.camera.footprint_m} m strip and finds ${Math.round(f.camera.detect_p * 100)}% of what passes under it.`;
+      ? `${f.placed.length} placed (hidden from the planner, white rings) · ${f.found} found by scans${ls ? `. Last scan: ${ls.found} found, ${ls.not_covered} never under the camera.` : "."}${f.mean_error_m != null ? ` Found positions are ${f.mean_error_m} m off on average.` : ""}`
+      : `Place divots on the map, preview a path over them (or ask the agent to plan a scan), then Scan route. The camera sees a ${f.camera.footprint_m} m strip and finds every divot that passes under it.`;
   const e = s.energy;
   $("#queue-model").innerHTML = `<b>Energy model${e.calibrated ? "" : " (uncalibrated placeholders)"}:</b> ${e.cells}S ${fmtInt(e.pack_mah)} mAh, land with ≥ ${e.reserve_pct}% left
     (${fmtInt(e.usable_mah)} mAh per leg), ${e.hover_a} A hover, ${e.cruise_a} A cruise, ×${e.margin} margin: about ${e.hover_minutes_to_reserve} min of hover per leg.

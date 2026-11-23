@@ -206,18 +206,17 @@ export interface PlacedDivot {
   found_task: string | null;
   found_error_m: number | null;
   seen: boolean;
-  missed: number;
 }
 
 export interface DivotField {
   placed: PlacedDivot[];
   scanning: boolean;
   scans: number;
-  last_scan: { index: number; found: number; missed_in_view: number; not_covered: number } | null;
+  last_scan: { index: number; found: number; not_covered: number } | null;
   found: number;
   not_found: number;
   mean_error_m: number | null;
-  camera: { footprint_m: number; detect_p: number; pos_err_m: number };
+  camera: { footprint_m: number; pos_err_m: number };
 }
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {

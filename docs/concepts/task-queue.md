@@ -59,13 +59,13 @@ The tasks can also come from a scan instead of being generated:
 2. **Scan run**: select an area and preview its path (or ask the agent: "plan
    a divot scan of hole 1", which calls `plan_scan`), then **Scan
    route**. The drone flies the coverage path. Every hidden divot that passes
-   under the camera footprint at survey altitude gets one detection roll per
-   scan; a hit becomes a pending task at the detected position. Rings turn
-   green when found and orange when the camera saw them but missed.
+   under the camera footprint at survey altitude is found and becomes a
+   pending task at the detected position. Rings turn green when found; a ring
+   still white after a scan was never under the camera.
 3. **Repair run**: "plan the repair run" (`plan_repair`) shows the legs and
    charge stops; **Run queue** flies them as above.
 
-![After a scan of holes 2 and 3 on ArduPilot SITL: 10 placed divots, 8 found (green dots and rings), 1 missed under the camera (orange), 1 never under the camera](../img/scan-sitl.png)
+![After a scan of hole 1 on ArduPilot SITL: 10 placed divots, 9 found (yellow task dots), 1 on the unscanned fairway sliver and never under the camera](../img/scan-sitl.png)
 
 The agent plans every step and a person starts every flight
 ([decision D11](../decisions.md#d11-divot-scans-detection-by-geometry-and-a-person-starts-every-flight)).
@@ -110,7 +110,6 @@ the queue took the number of legs it planned.
 | `DIVOT_SERVICE_ALT_M` | `4` | Height above the dock to work at a divot. |
 | `DIVOT_SERVICE_S` | `15` | Default time on station per divot. |
 | `QUEUE_GUARD_PCT` | `20` | Cut a leg short if the vehicle's battery reads below this. |
-| `SCAN_DETECT_P` | `0.9` | Chance that a divot under the camera footprint is found (one roll per divot per scan). |
 | `SCAN_POS_ERR_M` | `0.5` | 1-sigma error of a found divot's position, per axis. |
 
 ## Background
@@ -206,12 +205,12 @@ adds more. Faster charging is possible but wears the pack.
   safety pilot are in place. That last part is not done or tested here.
 - **Detection is geometry, not vision.** A divot is "seen" if it is within
   half the camera footprint of the drone's track at 80% or more of survey
-  altitude (25 m wide at 15 m, from `planner.CAMERA_HFOV_DEG`), then found
-  with probability `SCAN_DETECT_P`, at a position off by `SCAN_POS_ERR_M`.
-  There is no camera resolution, motion blur, lighting or grass model, and
-  nothing says a 10 cm divot is actually visible from 15 m with the camera
-  you pick. One roll per divot per scan is generous too: overlapping passes
-  see a divot about three times, but the roll doesn't get three chances.
+  altitude (25 m wide at 15 m, from `planner.CAMERA_HFOV_DEG`), and every
+  divot seen is found, at a position off by `SCAN_POS_ERR_M`. There are no
+  simulated misses (mj, 2026-11-23): no camera resolution, motion blur,
+  lighting or grass model, and nothing says a 10 cm divot is actually visible
+  from 15 m with the camera you pick. A real detector will miss some, so real
+  numbers will be worse than the sim's.
 - **A scan covers the selected cells, not the whole fairway.** `feature_cells`
   drops fairway slivers under 10 cells, so a divot on a sliver is never under
   the camera ("never under the camera" in the scan line). Seen in SITL on
