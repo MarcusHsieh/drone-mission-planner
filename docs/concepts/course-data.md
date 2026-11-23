@@ -13,7 +13,7 @@ matching.
 | --- | --- |
 | Snapshot | [`backend/app/data/osm_front9.json`](../../backend/app/data/osm_front9.json) |
 | Loading, decoding, matching features to holes | [`backend/app/course.py`](../../backend/app/course.py) (`Course._load`, `Course._assign`) |
-| Feature → cells, sliver removal | `Course.cells_in`, `Course.feature_cells` |
+| Feature → cells | `Course.cells_in`, `Course.feature_cells` |
 | Dock location | `DOCK_LAT`, `DOCK_LON` in `course.py` |
 
 The course is the front nine of San Ramon Golf Club, OSM relation
@@ -63,11 +63,15 @@ The cost is that it has to be refreshed by hand.
   approach to the green as separate shapes with a gap between them. When
   that happens, one hole's fairway becomes two groups (hole 4 in the demo
   script). The agent's instructions tell it to mention this.
-- **Slivers are dropped** (`feature_cells`, `min_piece_cells=10`). Fairways
-  cut around greens leave thin edges that turn into 1 to 4 cell islands. When
-  a fairway or corridor is converted to cells, any piece under 10 cells
-  (90 m²) is dropped. Greens and tees keep every cell, because they are small
-  to begin with.
+- **Every piece of a fairway is kept** (`feature_cells`). Fairways cut
+  around greens leave a thin collar, often narrower than a 3 m cell. Taking
+  only cells whose center is inside broke it into 1 to 4 cell islands, which
+  used to be dropped, so scans never looked there (hole 1's 448 m² collar).
+  Now a fairway takes every cell within half a cell of its outline
+  (`FAIRWAY_EDGE_M`), which keeps the collar one connected piece and puts
+  every part of every hole's fairway under the camera
+  (`test_fairway_scan_covers_every_piece_on_every_hole`). The selection
+  reaches up to 1.5 m into the rough, and routes are 5-15% longer.
 - **Corridors for unmapped holes.** If a hole has no fairway mapped, or the
   user asks for a strip, `feature="corridor"` uses a 40 m wide band along the
   hole line (`DEFAULT_CORRIDOR_M`).

@@ -24,6 +24,7 @@ from shapely.ops import unary_union
 
 from .geo import CELL_M, Cell, LocalFrame
 
+FAIRWAY_EDGE_M = CELL_M / 2  # feature_cells: take cells this close to a fairway outline
 DATA_FILE = Path(__file__).parent / "data" / "osm_front9.json"
 
 # Dock: back tee of hole 1 (OSM way 934037995), centroid. Confirmed against the
@@ -235,18 +236,18 @@ class Course:
         lon1, lat1 = self.frame.to_lonlat(maxx, maxy)
         return [lon0, lat0, lon1, lat1]
 
-    def feature_cells(self, hole: int, feature: str, corridor_m: float = DEFAULT_CORRIDOR_M, min_piece_cells: int = 10) -> set[Cell]:
-        """Cells for one hole's feature, minus slivers.
+    def feature_cells(self, hole: int, feature: str, corridor_m: float = DEFAULT_CORRIDOR_M) -> set[Cell]:
+        """Cells for one hole's feature, covering every piece of it.
 
-        OSM fairways are often cut around the green, which leaves thin collars
-        that rasterize into a handful of 1-4 cell islands. Pieces smaller than
-        min_piece_cells are dropped so a feature selection reads as one or two
-        clean groups. Greens and tees are small, so they keep every piece.
+        A fairway takes every cell within half a cell (FAIRWAY_EDGE_M) of its
+        outline, not only cells whose center is inside. OSM fairways are often
+        cut around the green, which leaves a thin collar narrower than a cell;
+        center-only cells break it into 1-4 cell islands, each flown as its
+        own tiny pattern. The margin keeps the collar one connected piece, so
+        a scan of the fairway sees all of it (mj, 2026-11-23: scan the scraps
+        on every hole) and the selection stays one or two clean groups.
         """
-        from .planner import components  # local import to avoid a cycle
-
-        h = self.holes[hole]
-        cells = self.cells_in(h.area(feature, corridor_m))
-        if feature in ("green", "tees"):
-            return cells
-        return set().union(*[c for c in components(cells) if len(c) >= min_piece_cells]) if cells else set()
+        area = self.holes[hole].area(feature, corridor_m)
+        if feature == "fairway" and area is not None:
+            area = area.buffer(FAIRWAY_EDGE_M)
+        return self.cells_in(area)

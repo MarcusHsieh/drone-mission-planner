@@ -59,3 +59,21 @@ def test_place_scan_then_repair(monkeypatch):
         c.post("/api/field/divots", json={"op": "clear"})
         c.post("/api/queue/clear")
         c.post("/api/selection", json={"op": "clear"})
+
+
+def test_fairway_scan_covers_every_piece_on_every_hole():
+    # Collars around greens and other scraps are scanned too: no part of any
+    # hole's fairway is outside the camera footprint along the planned route.
+    from app import planner
+    from app.state import MissionState
+
+    course = appmain.course
+    half = scan.footprint_m(planner.ALTITUDE_M) / 2
+    for h, hole in course.holes.items():
+        if hole.fairway is None:
+            continue
+        s = MissionState(course)
+        s.edit("add", course.feature_cells(h, "fairway"))
+        s.preview()
+        seen = LineString(s.route()["waypoints"]).buffer(half)
+        assert hole.fairway.difference(seen).area < 1.0, f"hole {h}"

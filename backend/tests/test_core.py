@@ -56,7 +56,7 @@ def test_hole4_fairway_selection_and_preview(course):
     s = MissionState(course)
     cells = course.feature_cells(4, "fairway")
     s.edit("add", cells)
-    assert len(s.groups) == 2  # main fairway + approach, slivers dropped
+    assert len(s.groups) == 2  # main fairway + approach (the collar around the green joins the approach)
     s.preview()
     snap = s.snapshot()
     assert snap["route"]["total_m"] > snap["route"]["survey_m"] > 0
@@ -110,7 +110,7 @@ def test_dogleg_paths_stay_over_the_fairway():
         outside = line.difference(poly.buffer(1.5)).length
         assert outside <= max(0.12 * line.length, 20), (hole, outside, line.length)
         if hole == 6 and len(comp) > 500:
-            assert line.length < 1600  # was 3,002 m with one sweep over the whole dogleg
+            assert line.length < 1700  # was 3,002 m with one sweep over the whole dogleg (1,605 m with the edge margin)
 
 
 def test_l_shape_is_split_not_bridged():
