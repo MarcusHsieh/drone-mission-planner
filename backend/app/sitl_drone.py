@@ -497,6 +497,21 @@ class SitlDrone:
     def return_to_dock(self) -> None:
         self.abort()
 
+    def set_charge_pct(self, pct: float) -> None:
+        """The dock charger's simulated charge: set the battery monitor to pct.
+
+        Same command as `recharge`, with a partial level. On a real vehicle the
+        dock charges the pack and this must not be sent.
+        """
+        if self.master is None or self.flying:
+            return
+        self._inbox = queue.Queue(maxsize=500)
+        self._listening.set()
+        try:
+            self._command(mavlink.MAV_CMD_BATTERY_RESET, 0xFF, round(pct))
+        finally:
+            self._listening.clear()
+
     def recharge(self) -> None:
         """Simulated charge: tell the autopilot's battery monitor the pack is full.
 

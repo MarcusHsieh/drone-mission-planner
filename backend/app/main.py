@@ -50,7 +50,9 @@ agent = Agent(course, state, tasks, field)
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await sim.on_startup()
+    tasks.charger.ensure_running()  # passive charging whenever the drone sits on the dock
     yield
+    await tasks.charger.stop()
 
 
 app = FastAPI(title="Drone Mission Planner (M1 demo)", lifespan=lifespan)
@@ -187,7 +189,7 @@ class PlacedReq(BaseModel):
 @app.post("/api/field/divots")
 def field_divots(req: PlacedReq) -> dict:
     if field.scanning:
-        raise HTTPException(409, "A scan is flying. Wait for it to land.")
+        raise HTTPException(409, "A survey is flying. Wait for it to land.")
     if req.op == "add":
         field.add([course.frame.to_xy(lon, lat) for lon, lat in req.points])
     elif req.op == "remove":
@@ -199,18 +201,6 @@ def field_divots(req: PlacedReq) -> dict:
             field.scatter(req.count, req.holes, req.seed)
         except ValueError as e:
             raise HTTPException(400, str(e))
-    return queue_snapshot()
-
-
-@app.post("/api/scan")
-async def scan() -> dict:
-    route = state.route()
-    if not route:
-        raise HTTPException(400, "Preview a path over the area to scan first.")
-    try:
-        field.start_scan(route["waypoints"])
-    except RuntimeError as e:
-        raise HTTPException(409, str(e))
     return queue_snapshot()
 
 
@@ -235,7 +225,7 @@ def queue_clear() -> dict:
 @app.post("/api/queue/run")
 async def queue_run() -> dict:
     if field.scanning:
-        raise HTTPException(409, "A scan is flying. Run the queue after it lands.")
+        raise HTTPException(409, "A survey is flying. Run the queue after it lands.")
     try:
         tasks.start()
     except RuntimeError as e:
@@ -254,13 +244,16 @@ async def queue_abort() -> dict:
 
 @app.post("/api/fly")
 async def fly() -> dict:
+    """Fly the previewed path as a survey: the camera is always on and finds
+    any placed divots under it (scan.py). It waits on the dock only if the
+    pack is short of this flight plus the reserve."""
     if tasks.running:
         raise HTTPException(409, "The task queue is running. Abort it first.")
     route = state.route()
     if not route:
         raise HTTPException(400, "Preview a path first.")
     try:
-        sim.start(route["waypoints"])
+        field.start_scan(route["waypoints"])
     except RuntimeError as e:
         raise HTTPException(409, str(e))
     return {"ok": True, "route_m": round(route["total_m"])}
@@ -268,6 +261,9 @@ async def fly() -> dict:
 
 @app.post("/api/abort")
 async def abort() -> dict:
+    if field.scanning:
+        field.abort()
+        return {"ok": True}
     if not sim.flying:
         raise HTTPException(409, "Not flying")
     sim.abort()

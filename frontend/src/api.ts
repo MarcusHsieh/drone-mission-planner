@@ -178,7 +178,7 @@ export interface QueueState {
   tasks: QueueTask[];
   legs: QueueLeg[];
   remaining: { legs: number; charge_stops: number; time_s: number; mah: number };
-  charge: { real_s: number; wall_s: number; left_s: number; pct: number } | null;
+  charge: { state: "idle" | "settling" | "charging" | "full"; pct: number | null; left_s: number | null };
   energy: {
     pack_mah: number;
     cells: number;
@@ -211,6 +211,7 @@ export interface PlacedDivot {
 export interface DivotField {
   placed: PlacedDivot[];
   scanning: boolean;
+  waiting_for_charge: boolean;
   scans: number;
   last_scan: { index: number; found: number; not_covered: number } | null;
   found: number;
@@ -260,5 +261,4 @@ export const api = {
   queueClear: () => req<QueueState>("POST", "/api/queue/clear"),
   placed: (body: { op: "add" | "remove" | "clear" | "scatter"; points?: LonLat[]; ids?: string[]; count?: number; holes?: number[] | null }) =>
     req<QueueState>("POST", "/api/field/divots", body),
-  scan: () => req<QueueState>("POST", "/api/scan"),
 };

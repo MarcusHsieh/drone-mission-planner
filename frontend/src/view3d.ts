@@ -27,6 +27,24 @@ const MAX_ENLARGE = 20;
 /** Pose smoothing time constant (telemetry arrives at about 5 Hz). */
 const SMOOTH_S = 0.15;
 
+/** A divot shown in 3D: a pin for a task, a ring on the ground for a placed (hidden) one. */
+export interface Marker3D {
+  x: number;
+  y: number;
+  color: string;
+  kind: "task" | "placed";
+}
+
+/** Pin height and head size in meters at real size (scaled up with the drone when zoomed out). */
+const PIN_M = 0.9;
+const PIN_HEAD_M = 0.12;
+
+/** Shadow: radius and darkness as a function of the drone's altitude (meters), not of the zoom. */
+function shadowAt(altM: number): { radius: number; opacity: number } {
+  const a = Math.max(0, altM);
+  return { radius: ARM_M * 1.4 + 0.12 * a, opacity: Math.max(0.12, 0.5 - 0.016 * a) };
+}
+
 interface Pose {
   x: number;
   y: number;
@@ -51,6 +69,9 @@ export class Flight3D implements CustomLayerInterface {
   private readonly shadow: THREE.Mesh;
   private readonly plumb: THREE.Line;
   private readonly route = new THREE.Group();
+  private readonly markers = new THREE.Group();
+  private markerData: Marker3D[] = [];
+  private markerGroundAt = 0;
   private readonly lineMats: LineMaterial[] = [];
   private trackLine: Line2 | null = null;
   private trackCurtain: THREE.Mesh | null = null;
@@ -63,6 +84,8 @@ export class Flight3D implements CustomLayerInterface {
   private origin: maplibregl.MercatorCoordinate;
   private metersToMerc: number;
 
+  /** Pins and rings for divots; hidden in 2D, where the flat map layers show them. */
+  markersOn = false;
   /** Set when the chase camera is on. */
   follow = false;
   /** Google photorealistic tiles, once enabled; drawn only while `photorealOn`. */
@@ -86,16 +109,17 @@ export class Flight3D implements CustomLayerInterface {
     this.buildDrone();
     this.buildDock();
 
+    // A soft disc, unit radius: scaled each frame by the altitude (shadowAt).
     this.shadow = new THREE.Mesh(
-      new THREE.CircleGeometry(ARM_M * 1.6, 32),
-      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false }),
+      new THREE.CircleGeometry(1, 48),
+      new THREE.MeshBasicMaterial({ map: softDiscTexture(), color: 0x000000, transparent: true, opacity: 0.45, depthWrite: false }),
     );
     this.shadow.position.z = 0.02;
     this.plumb = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 1)]),
       new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 0.6, gapSize: 0.4, transparent: true, opacity: 0.8 }),
     );
-    this.scene.add(this.route, this.dock, this.shadow, this.plumb, this.drone);
+    this.scene.add(this.route, this.markers, this.dock, this.shadow, this.plumb, this.drone);
     this.setDroneVisible(false);
   }
 
@@ -163,6 +187,67 @@ export class Flight3D implements CustomLayerInterface {
       this.dock.add(bar);
     }
     this.dock.add(pad, ring);
+  }
+
+  // ------------------------------------------------------------ divots
+  /** Replace the divot markers (tasks as pins, placed divots as rings). */
+  setMarkers(list: Marker3D[]) {
+    this.markerData = list;
+    for (const c of [...this.markers.children]) {
+      this.markers.remove(c);
+      c.traverse((o) => {
+        const m = o as THREE.Mesh;
+        m.geometry?.dispose();
+        (m.material as THREE.Material | undefined)?.dispose?.();
+      });
+    }
+    for (const d of list) {
+      const g = new THREE.Group();
+      g.position.set(d.x, d.y, 0);
+      g.userData.marker = d;
+      const color = new THREE.Color(d.color);
+      if (d.kind === "task") {
+        const stick = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.012, 0.012, PIN_M, 8),
+          new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.6 }),
+        );
+        stick.rotation.x = Math.PI / 2;
+        stick.position.z = PIN_M / 2;
+        const head = new THREE.Mesh(
+          new THREE.SphereGeometry(PIN_HEAD_M, 16, 12),
+          new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35, roughness: 0.4 }),
+        );
+        head.position.z = PIN_M;
+        const foot = new THREE.Mesh(
+          new THREE.CircleGeometry(0.1, 20),
+          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, depthWrite: false }),
+        );
+        foot.position.z = 0.03;
+        g.add(stick, head, foot);
+      } else {
+        const ring = new THREE.Mesh(
+          new THREE.RingGeometry(0.16, 0.22, 28),
+          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false }),
+        );
+        ring.position.z = 0.04;
+        g.add(ring);
+      }
+      this.markers.add(g);
+    }
+    this.markerGroundAt = 0; // re-seat on the photoreal ground next frame
+    this.map?.triggerRepaint();
+  }
+
+  /** Sit markers on the photoreal mesh where it has loaded (the flat world is z = 0). */
+  private seatMarkers(now: number) {
+    const pr = this.photoreal;
+    const real = !!pr && this.photorealOn && pr.status === "ready";
+    if (real && now - this.markerGroundAt < 1000) return;
+    this.markerGroundAt = now;
+    for (const g of this.markers.children) {
+      const d = g.userData.marker as Marker3D;
+      g.position.z = real ? pr!.groundAt(d.x, d.y) ?? 0 : 0;
+    }
   }
 
   // ------------------------------------------------------------ data in
@@ -297,6 +382,13 @@ export class Flight3D implements CustomLayerInterface {
     this.drone.scale.setScalar(enlarge);
     this.enlarge = enlarge;
     this.dock.scale.setScalar(Math.max(1, enlarge * 0.6));
+    this.markers.visible = this.markersOn && this.markerData.length > 0;
+    if (this.markers.visible) {
+      // Pins grow with the drone when zoomed out, a bit less so a cluster stays readable.
+      const ms = Math.max(1, enlarge * 0.5);
+      for (const g of this.markers.children) g.scale.setScalar(ms);
+      this.seatMarkers(now);
+    }
 
     if (this.target && this.pose) {
       const a = 1 - Math.exp(-dt / SMOOTH_S);
@@ -313,8 +405,11 @@ export class Flight3D implements CustomLayerInterface {
       // north, so negative), then pitch about the body's x, then roll about y.
       this.drone.position.set(p.x, p.y, p.z + 0.03 * enlarge);
       this.drone.rotation.set(p.pitch, p.roll, -p.yaw, "ZXY");
+      // The shadow is in meters and follows altitude: wider and fainter as the drone climbs.
+      const sh = shadowAt(p.z);
       this.shadow.position.set(p.x, p.y, 0.02);
-      this.shadow.scale.setScalar(enlarge * Math.max(0.4, 1 - p.z / 60));
+      this.shadow.scale.setScalar(sh.radius);
+      (this.shadow.material as THREE.MeshBasicMaterial).opacity = sh.opacity;
       this.plumb.position.set(p.x, p.y, 0);
       this.plumb.scale.set(1, 1, Math.max(0.01, p.z));
       this.plumb.computeLineDistances();
@@ -350,6 +445,22 @@ export class Flight3D implements CustomLayerInterface {
     this.renderer.render(this.scene, this.camera);
     if (this.armed || moving) this.map.triggerRepaint();
   }
+}
+
+/** A radial gradient: opaque center fading to clear at the edge, for a soft shadow. */
+function softDiscTexture(): THREE.Texture {
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const g = c.getContext("2d")!;
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, "rgba(255,255,255,1)");
+  grad.addColorStop(0.55, "rgba(255,255,255,0.75)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
 function wrapPi(a: number) {

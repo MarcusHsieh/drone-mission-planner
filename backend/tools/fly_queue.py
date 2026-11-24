@@ -51,6 +51,7 @@ async def run(args) -> dict:
             raise SystemExit(f"No MAVLink heartbeat from {args.connection} after 60 s. Is SITL running?")
         await asyncio.sleep(0.5)
     q = TaskQueue(course, drone, model)
+    q.charger.ensure_running()  # passive charging on the dock, as in the app
     scan_report = None
     if args.scan_holes:
         field = DivotField(course, q, drone, seed=args.seed)
@@ -71,7 +72,6 @@ async def run(args) -> dict:
         print(f"Scan result: {scan_report}", flush=True)
         if not q.tasks:
             raise SystemExit("The scan found nothing to repair")
-        await q._top_up("after the scan")
     else:
         q.generate(args.divots, args.holes, args.seed, service_s=args.service_s)
     plan0 = q.snapshot()

@@ -56,7 +56,7 @@ For setup, running the app and the demo script, see the [main README](../README.
 | **Sortie** | One flight on one battery charge. Survey routes from the Fly button are still assumed to fit on one battery; the task queue splits its work into sorties, called legs there. |
 | **Task** | A spot the drone flies to and works at (descend, hold, climb back), with a status: pending, active, done or failed. In simulation the tasks are fake divots. |
 | **Divot** | A patch of turf torn out by a golf shot. Here, a fake one: a random point inside a fairway, used as a task. |
-| **Leg** | One flight of the task queue: take off from the dock with a full pack, visit some tasks, land on the dock with at least the reserve left. |
+| **Leg** | One flight of the task queue, planned on a full pack: take off from the dock, visit some tasks, land on the dock with at least the reserve left. |
 | **Charge stop** | Time on the dock between two legs while the pack charges (simulated). |
 | **Energy model** | The planner's prediction of current draw per flight phase (hover, cruise, climb, descent), with a reserve and a safety margin. Placeholders until calibrated on the real airframe. |
 | **Reserve** | The share of the pack a leg must still have when it lands, by the model. |

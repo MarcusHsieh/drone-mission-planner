@@ -38,11 +38,11 @@ def test_place_scan_then_repair(monkeypatch):
         lon, lat = appmain.course.frame.to_lonlat(*h9)
         s = c.post("/api/field/divots", json={"op": "add", "points": [[lon, lat]]}).json()
         assert len(s["field"]["placed"]) == 6 and s["tasks"] == []  # hidden: no tasks yet
-        assert c.post("/api/scan").status_code == 400  # no route yet
+        assert c.post("/api/fly").status_code == 400  # no route yet
         cells = appmain.course.feature_cells(1, "fairway")
         c.post("/api/selection", json={"op": "set", "cells": [list(x) for x in cells]})
         c.post("/api/preview", json={})
-        assert c.post("/api/scan").status_code == 200
+        assert c.post("/api/fly").status_code == 200
         assert c.post("/api/queue/run").status_code == 409  # scan flying
         s = _wait(c, lambda s: not s["field"]["scanning"] and s["field"]["last_scan"])
         f = s["field"]

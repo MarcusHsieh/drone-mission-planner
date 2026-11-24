@@ -90,7 +90,21 @@ time to show the same flight in a standard autopilot view.
 ## 3D view
 
 The **2D / 3D / Chase** buttons under the basemap toggle switch how the
-flight is shown. They work for both flight backends.
+flight is shown. They work for both flight backends. In 3D, the basemap
+toggle also picks the world: **Satellite** is Google photorealistic 3D (with
+a key; satellite imagery and OSM building boxes without one), **Map** is
+OpenStreetMap with OSM building boxes and never contacts Google.
+
+- **Divots** stand up as pins in their status color (tasks) and white rings
+  (placed, not yet found), seated on the photorealistic ground where it has
+  loaded. In 2D the flat map layers show them.
+- **The shadow** under the drone is in meters and follows altitude: about
+  0.7 m across on the dock, wider and fainter as it climbs (about 4 m at
+  15 m). It no longer changes size with the zoom.
+- **The compass** (top right, under the view buttons) turns with the map,
+  leans with the tilt and shows the bearing. Click it to face north.
+
+![A hole 1 survey in the 3D view (built-in sim): found divots as yellow pins, placed ones not yet seen as white rings, the compass top right](../img/survey-3d-pins.png)
 
 - **3D** tilts the map toward the route. The quad flies at its reported
   altitude and attitude, the planned passes hang at survey altitude in their
@@ -135,7 +149,8 @@ The 3D view puts the course's surroundings under the flight, in two layers:
 1. **OSM building boxes** (always, free). Building footprints from
    OpenStreetMap, extruded to their `height` tag, or `building:levels` x 3 m
    + 1 m, or a guess by building type (a house is 6 m). They show at once.
-2. **Google Photorealistic 3D Tiles** (with `GOOGLE_MAPS_API_KEY`). The
+2. **Google Photorealistic 3D Tiles** (with `GOOGLE_MAPS_API_KEY`, and only
+   with the Satellite basemap). The
    textured mesh of the real houses, clubhouse and trees. They stream in on
    top, and the boxes fade out once they have loaded. If Google fails (bad
    key, quota, no network), the boxes stay and the legend says why.
@@ -250,10 +265,10 @@ commands from the ground station one at a time.
   parameter file, plus tuning.
 - **One vehicle, one flight at a time, fresh at every start.** `run-sitl.sh`
   starts with `-w`, so every start is the same clean vehicle on the dock.
-- **Recharge is simulated.** The task queue splits its work into legs that
-  each end in `NAV_LAND` at the dock and "charges" between them by waiting and
-  resetting the battery monitor (`MAV_CMD_BATTERY_RESET`); see
-  [Task queue](task-queue.md). Survey routes from the Fly button still fly as
-  one sortie. Still missing: precision landing on the dock (ArduPilot's
+- **Charging is simulated.** The dock charges passively whenever the vehicle
+  sits on it disarmed, by stepping the battery monitor up a percent at a time
+  (`MAV_CMD_BATTERY_RESET` with the new level); see
+  [Task queue](task-queue.md). Surveys from the Fly button still fly as one
+  sortie. Still missing: precision landing on the dock (ArduPilot's
   `PLND_` parameters, which SITL can simulate with a fake IR-LOCK beacon) and
   a dock that reports charging.

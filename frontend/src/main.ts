@@ -6,7 +6,7 @@ import { LocalFrame } from "./geo";
 import { Flight3D } from "./view3d";
 import { Dashboard } from "./layout";
 import { setupPanels, updatePanels } from "./panels";
-import { addTaskLayers, clickDivot, queueRunning, refreshTaskButtons, setRouteCheck, setupTasks } from "./tasks";
+import { addTaskLayers, clickDivot, onDivots, queueRunning, refreshTaskButtons, setupTasks, surveyWaiting } from "./tasks";
 
 // Distinct, readable on satellite imagery.
 const PALETTE = ["#22d3ee", "#f472b6", "#facc15", "#a78bfa", "#fb923c", "#4ade80", "#60a5fa", "#f87171"];
@@ -84,16 +84,22 @@ function buildMap() {
     const el = $("#map");
     if (el.clientWidth > 0 && el.clientHeight > 0) map.resize();
   }).observe($("#map"));
-  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-left");
+  // Zoom buttons only: the compass is our own, larger one (setupCompass).
+  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
   map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
   map.on("load", () => {
     addCourseLayers();
     addDynamicLayers();
     addTaskLayers(map);
     addMarkers();
+    setupCompass();
     flight3d = new Flight3D(frame);
     flight3d.onPose = chaseCamera;
     map.addLayer(flight3d);
+    onDivots((list) => flight3d.setMarkers(list.map((d) => {
+      const [x, y] = frame.toXY(d.lon, d.lat);
+      return { x, y, color: d.color, kind: d.kind };
+    })));
     map.fitBounds(courseBounds(), { padding: 40, duration: 0 });
     updateGrid();
     if (state) renderState(state);
@@ -484,7 +490,7 @@ function updateButtons() {
   $<HTMLButtonElement>("#btn-preview").disabled = !hasGroups;
   $<HTMLButtonElement>("#btn-clear").disabled = !hasGroups;
   $<HTMLButtonElement>("#btn-fly").disabled = flying || !state?.route || queueRunning();
-  $<HTMLButtonElement>("#btn-abort").disabled = !flying;
+  $<HTMLButtonElement>("#btn-abort").disabled = !flying && !surveyWaiting();
   refreshTaskButtons();
 }
 
@@ -508,12 +514,38 @@ function setupButtons() {
   $("#btn-abort").addEventListener("click", () => api.abort().catch((e) => toast(e.message)));
   document.querySelectorAll<HTMLButtonElement>("#basemap-toggle button").forEach((b) =>
     b.addEventListener("click", () => {
-      const sat = b.dataset.basemap === "satellite";
+      basemap = b.dataset.basemap === "satellite" ? "satellite" : "map";
+      const sat = basemap === "satellite";
       map.setLayoutProperty("satellite", "visibility", sat ? "visible" : "none");
       map.setLayoutProperty("osm", "visibility", sat ? "none" : "visible");
       document.querySelectorAll("#basemap-toggle button").forEach((x) => x.classList.toggle("active", x === b));
+      // In 3D the basemap picks the 3D world too: Google photorealistic under Satellite, OSM under Map.
+      if (viewMode !== "2d") setup3dWorld(true);
+      updateLegend();
     }),
   );
+}
+
+// ---------------------------------------------------------------- compass
+/** A compass rose on the map: the needle points to north as the map turns, and the dial leans with the tilt. */
+function setupCompass() {
+  const rose = document.querySelector<SVGGElement>("#compass .c-rose")!;
+  const svg = document.querySelector<SVGSVGElement>("#compass svg")!;
+  const deg = $("#compass-deg");
+  const draw = () => {
+    const b = map.getBearing();
+    rose.setAttribute("transform", `rotate(${-b})`);
+    svg.style.transform = `perspective(160px) rotateX(${map.getPitch() * 0.6}deg)`;
+    const heading = ((Math.round(b) % 360) + 360) % 360;
+    deg.textContent = `${heading}°`;
+  };
+  map.on("rotate", draw);
+  map.on("pitch", draw);
+  draw();
+  $("#compass").addEventListener("click", () => {
+    if (viewMode === "chase") setView("3d");
+    map.easeTo({ bearing: 0, duration: 600 });
+  });
 }
 
 // ---------------------------------------------------------------- 2D / 3D / chase views
@@ -547,18 +579,22 @@ function setView(mode: ViewMode) {
     }
   }
   $("#legend-3d").hidden = mode === "2d";
+  flight3d.markersOn = mode !== "2d";
   setup3dWorld(mode !== "2d");
   map.triggerRepaint();
 }
 
 // ---------------------------------------------------------------- 3D buildings
-// OSM building boxes show first (free, instant). With a Google key, the
-// photorealistic tiles load on top and the boxes fade out once they are in;
-// if Google fails, the boxes stay. Nothing 3D is fetched until the first
-// switch to 3D or Chase.
+// The basemap toggle picks the 3D world. Map: OSM raster with OSM building
+// boxes. Satellite: Google photorealistic 3D tiles (with a key); the boxes show
+// while they load and stay if Google fails. Nothing 3D is fetched until the
+// first switch to 3D or Chase, and Google is never contacted under Map.
 const GROUND_OVERLAYS = ["fairway-fill", "fairway-line", "green-line", "tee-line", "bunker-line", "water-line", "hole-line",
   "cells-fill", "cells-outline", "route-transit", "path-casing", "path", "trail", "legs-planned", "legs-flown", "placed", "divots"];
 let buildingsRequested = false;
+let basemap: "satellite" | "map" = "satellite";
+/** Google photorealistic 3D is wanted: a 3D view with the Satellite basemap. */
+const wantPhotoreal = () => viewMode !== "2d" && basemap === "satellite";
 let photorealNote = "";
 let attributionTimer = 0;
 
@@ -581,7 +617,7 @@ function setup3dWorld(on: boolean) {
       if (fc.error) toast(fc.error);
     }).catch((e) => toast(`Buildings: ${(e as Error).message}`));
   }
-  if (on && course.google_3d_key && !flight3d.photoreal) {
+  if (on && basemap === "satellite" && course.google_3d_key && !flight3d.photoreal) {
     const pr = flight3d.enablePhotoreal(course.google_3d_key);
     pr.onStatus = (s) => {
       photorealNote = s === "failed" ? pr.error : "";
@@ -590,14 +626,14 @@ function setup3dWorld(on: boolean) {
       updateLegend();
     };
   }
-  flight3d.photorealOn = on;
+  flight3d.photorealOn = on && basemap === "satellite";
   applyWorldLayers();
 }
 
 /** Which of boxes, photoreal and the flat 2D overlays show, for the current view and photoreal state. */
 function applyWorldLayers() {
   const threeD = viewMode !== "2d";
-  const real = threeD && flight3d.photoreal?.status === "ready";
+  const real = wantPhotoreal() && flight3d.photoreal?.status === "ready";
   if (map.getLayer("buildings")) {
     map.setLayoutProperty("buildings", "visibility", threeD ? "visible" : "none");
     map.setPaintProperty("buildings", "fill-extrusion-opacity", real ? 0 : 0.85);
@@ -621,10 +657,17 @@ function updateLegend() {
   if (viewMode === "2d" || !flight3d) return;
   const alt = state?.assumptions.altitude_m ?? 15;
   const x = flight3d.enlarge;
-  const real = flight3d.photoreal?.status === "ready";
+  const st = wantPhotoreal() ? flight3d.photoreal?.status : undefined;
+  const real = st === "ready";
+  const world = basemap === "map"
+    ? "Map: OpenStreetMap with OSM building footprints (heights estimated). Satellite switches to Google photorealistic 3D."
+    : real ? "Satellite: Google photorealistic 3D, ground set to the dock's height"
+    : st === "loading" ? "Loading Google photorealistic 3D… (OSM building boxes meanwhile)"
+    : !course.google_3d_key ? "Satellite imagery with OSM building boxes (no Google key set for photorealistic 3D)"
+    : "Satellite imagery with OSM building boxes";
   $("#legend-3d").innerHTML = `<b>3D view</b> · altitudes to scale${real ? "" : ", ground flat at the dock"}<br>
     <span class="key white"></span>flown track (from telemetry) · <span class="key cyan"></span>planned passes at ${alt} m<br>
-    ${flight3d.photoreal?.status === "ready" ? "Google photorealistic 3D, ground set to the dock's height" : flight3d.photoreal?.status === "loading" ? "Loading Google photorealistic 3D… (OSM building boxes meanwhile)" : "Buildings: OSM footprints, heights estimated"}${photorealNote ? ` <span class="err">${esc(photorealNote)}</span>` : ""}<br>
+    ${world}${photorealNote && basemap === "satellite" ? ` <span class="err">${esc(photorealNote)}</span>` : ""}<br>
     <span class="muted">Drone and dock drawn ${x > 1.5 ? `${Math.round(x)}× real size so they stay visible` : "at real size"}. Right-drag or Ctrl+drag to tilt and turn.</span>`;
 }
 
@@ -690,7 +733,7 @@ async function boot() {
   setupSelection();
   setupChat();
   setupButtons();
-  setRouteCheck(() => !!state?.route);
+  window.addEventListener("queue-state", () => updateButtons());
   setupTasks(focus, toast);
   setupViews();
   renderState(await api.state());
