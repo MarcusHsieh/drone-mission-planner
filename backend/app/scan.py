@@ -4,8 +4,8 @@ The flow this supports:
 
 1. You place divots on the map (or scatter random ones). They are the ground
    truth of the simulation and the planner does not see them.
-2. A **scan run** flies a coverage route (the same route the Fly button
-   flies). While it flies, any placed divot that passes under the camera
+2. A **survey** (the Fly button) flies the previewed coverage route with the
+   camera on; there is no separate camera-off flight. While it flies, any placed divot that passes under the camera
    footprint at survey altitude is found. It becomes a pending task at the
    detected position (the true one plus a small error).
 3. A **repair run** is the task queue: it flies the found tasks in legs with
@@ -30,6 +30,7 @@ from shapely.geometry import LineString, Point
 
 from . import planner, vitals
 from .course import Course
+from .energy import estimate_leg
 
 POS_ERR_M = float(os.getenv("SCAN_POS_ERR_M", "0.5"))  # 1-sigma error of the detected position, per axis
 MIN_ALT_FRAC = 0.8  # only detect at 80% or more of survey altitude (not on takeoff or landing)
@@ -73,6 +74,8 @@ class DivotField:
         self.placed: dict[str, Placed] = {}
         self._next = 1
         self.scanning = False
+        self.waiting = False  # scanning, but still on the dock waiting for charge
+        self.abort_requested = False
         self.scan_count = 0
         self.last_scan: dict | None = None
         self._task: asyncio.Task | None = None
@@ -113,12 +116,13 @@ class DivotField:
     def start_scan(self, waypoints: list[tuple[float, float]]) -> None:
         """Fly the survey route with the camera on."""
         if self.scanning:
-            raise RuntimeError("Already scanning")
+            raise RuntimeError("A survey is already flying")
         if self.queue.running:
             raise RuntimeError("The task queue is running. Abort it first.")
         if self.link.flying:
             raise RuntimeError("The drone is already flying")
         self.scanning = True
+        self.abort_requested = False
         self.scan_count += 1
         self._task = asyncio.create_task(self._watch(waypoints))
 
@@ -130,15 +134,23 @@ class DivotField:
         started = False
         frame = self.course.frame
         try:
-            # A scan, like every leg, starts on a full pack.
-            await self.queue._top_up("before the scan")
-            if self.queue.phase == "charging":
-                self.queue.phase, self.queue.message = "idle", "Charged. Scanning."
-            try:
-                self.link.start(waypoints)
-            except RuntimeError as e:
-                self._log(f"Scan could not start: {e}", vitals.ERROR)
+            # The dock charges passively; wait only if the pack is short of this flight plus the reserve.
+            model = self.queue.model
+            est = estimate_leg(model, waypoints[1:-1], 0.0, model.cruise_alt_m)
+            self.waiting = True
+            if not await self.queue.wait_for_charge(est.mah, "the survey", lambda: self.abort_requested):
+                self.queue.phase, self.queue.message = "idle", "Survey aborted before takeoff."
                 return
+            self.queue.phase, self.queue.message = "idle", "Surveying with the camera on."
+            self.queue._changed()
+            try:
+                async with self.queue.charger.launching():
+                    self.link.start(waypoints)
+            except RuntimeError as e:
+                self._log(f"Survey could not start: {e}", vitals.ERROR)
+                return
+            finally:
+                self.waiting = False
             while True:
                 flying = self.link.flying
                 started = started or flying
@@ -157,24 +169,30 @@ class DivotField:
                             d.seen = True
                             tx = d.x + self.rng.gauss(0, POS_ERR_M)
                             ty = d.y + self.rng.gauss(0, POS_ERR_M)
-                            task = self.queue.add_found(tx, ty, d.hole, note=f"Found by scan {self.scan_count}")
+                            task = self.queue.add_found(tx, ty, d.hole, note=f"Found by survey {self.scan_count}")
                             d.found_task = task.id
                             d.found_error_m = math.dist((tx, ty), (d.x, d.y))
                             found.append(d.id)
-                            self._log(f"Scan: divot found near hole {d.hole or '?'} ({task.id})")
+                            self._log(f"Survey: divot found near hole {d.hole or '?'} ({task.id})")
                     last = here
                 else:
                     last = None
                 await asyncio.sleep(POLL_S)
         finally:
-            self.scanning = False
+            self.scanning = self.waiting = False
             never = [d.id for d in self.placed.values() if d.id not in seen_now and not self._found(d)]
             self.last_scan = {"index": self.scan_count, "found": len(found), "not_covered": len(never)}
             self._log(
-                f"Scan {self.scan_count} done: {len(found)} found, {len(never)} never under the camera",
+                f"Survey {self.scan_count} done: {len(found)} found, {len(never)} never under the camera",
                 vitals.NOTICE,
             )
             self.queue.replan()
+
+    def abort(self) -> None:
+        """Stop a survey: before takeoff it is dropped, in the air the drone returns to the dock."""
+        self.abort_requested = True
+        if self.link.flying:
+            self.link.abort()
 
     def _found(self, d: Placed) -> bool:
         """Found by a scan, and the task still exists (clearing the queue forgets finds)."""
@@ -195,6 +213,7 @@ class DivotField:
         return {
             "placed": [d.to_json(self.course) for d in ps],
             "scanning": self.scanning,
+            "waiting_for_charge": self.waiting,
             "scans": self.scan_count,
             "last_scan": self.last_scan,
             "found": sum(1 for d in ps if d.found_task),

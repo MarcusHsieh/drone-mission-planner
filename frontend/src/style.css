@@ -180,6 +180,16 @@ button.small { padding: 3px 8px; font-size: 12px; }
 #basemap-toggle { display: flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
 #basemap-toggle button { border-radius: 0; background: #0b1220d9; color: var(--text); font-weight: 500; padding: 5px 10px; }
 #basemap-toggle button.active { background: var(--accent); color: #062029; }
+#compass { position: relative; width: 64px; height: 64px; padding: 0; border-radius: 50%; background: #0b1220d9; border: 1px solid var(--line); cursor: pointer; }
+#compass svg { width: 100%; height: 100%; display: block; }
+#compass .c-face { fill: none; stroke: #94a3b8; stroke-width: 2; }
+#compass .c-ticks line { stroke: #94a3b8; stroke-width: 2; }
+#compass .c-rose { transition: transform 0.05s linear; }
+#compass .c-north { fill: #ef4444; }
+#compass .c-south { fill: #e2e8f0; }
+#compass .c-hub { fill: #0b1220; stroke: #e2e8f0; stroke-width: 1.5; }
+#compass .c-n { fill: #f8fafc; font: 700 15px system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; }
+#compass-deg { position: absolute; left: 50%; bottom: -17px; transform: translateX(-50%); font-size: 11px; color: var(--text); text-shadow: 0 0 3px #000; white-space: nowrap; pointer-events: none; }
 #view-toggle { display: flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
 #view-toggle button { border-radius: 0; background: #0b1220d9; color: var(--text); font-weight: 500; padding: 5px 10px; }
 #legend-3d { position: absolute; left: 120px; bottom: 34px; z-index: 2; max-width: 380px; background: #0b1220d9; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: 12px; line-height: 1.5; color: var(--text); pointer-events: none; }

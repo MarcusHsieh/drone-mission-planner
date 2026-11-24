@@ -32,8 +32,8 @@ shows during a flight:
 | Messages | The autopilot's text messages with severity and time, plus the planner's own events (connected, mode changes, armed, mission uploaded, landed) | `STATUSTEXT` |
 | Link | Whether the browser is getting telemetry, autopilot heartbeat age, packet loss, the vehicle's own drop rate, RC signal | `HEARTBEAT`, MAVLink sequence numbers, `SYS_STATUS`, `RC_CHANNELS` |
 | Rangefinder | Downward distance, in range or not, compared with altitude | `DISTANCE_SENSOR` (pointing down) |
-| Flight | Fly and Abort, the mode and message, mission progress, waypoints reached, distance to the next waypoint and off the line | `MISSION_CURRENT`, `MISSION_ITEM_REACHED`, `NAV_CONTROLLER_OUTPUT` |
-| Tasks | The divot task queue: generate, run, abort; each leg's prediction and what the vehicle measured; task status; charge progress. Divots and legs are drawn on the map. See [Task queue](task-queue.md) | the planner (`GET /api/queue`), progress from `MISSION_CURRENT` and `MISSION_ITEM_REACHED` |
+| Flight | Fly survey (the previewed path, camera on) and Abort, the mode and message, mission progress, waypoints reached, distance to the next waypoint and off the line | `MISSION_CURRENT`, `MISSION_ITEM_REACHED`, `NAV_CONTROLLER_OUTPUT` |
+| Tasks | The divot task queue: generate, run, abort; each leg's prediction and what the vehicle measured; task status; the dock's passive charge. Divots and legs are drawn on the map. See [Task queue](task-queue.md) | the planner (`GET /api/queue`), progress from `MISSION_CURRENT` and `MISSION_ITEM_REACHED` |
 
 The top bar repeats the essentials (armed, mode, battery, GPS, an overall
 health light, link) so they stay visible with any layout.
@@ -96,7 +96,7 @@ What the panels mean:
   shouldn't be: QGC and Mission Planner do them well, and a mistake there can
   make the drone unsafe. Connect QGC on port 5762 next to the planner (see the
   main README). See [D9](../decisions.md#d9-an-in-flight-dashboard-in-the-web-app-qgc-for-setup).
-- **The only commands are Fly and Abort (RTL).** There is no takeoff, land,
+- **The only commands are Fly survey and Abort (RTL).** There is no takeoff, land,
   change mode, pause or go-to button yet. Adding them is easy over MAVLink,
   but each one is a way to send a wrong command to a real drone, so they
   should come with confirmation and a decision about who is in control (the

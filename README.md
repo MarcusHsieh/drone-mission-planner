@@ -23,8 +23,9 @@ What it does:
   with length and time estimates.
 - **3D view**: 2D / 3D / Chase buttons tilt the map and show the drone at its
   real altitude and attitude, the planned passes at survey altitude and the
-  flown track in 3D, over OSM building boxes or, with a Google key, Google's
-  photorealistic 3D buildings and trees.
+  flown track in 3D, with divots as pins. Satellite shows Google's
+  photorealistic 3D buildings and trees (with a key), Map shows OSM with
+  building boxes. A compass shows and resets the bearing.
 - **Dashboard**: every part of the app is a panel you can drag by its tab,
   stack as tabs, resize, float, close and reopen (**Panels** in the top
   bar). In-flight instruments like a ground station's: attitude indicator,
@@ -40,15 +41,15 @@ What it does:
   (pending, active, done, failed). The planner splits the queue into legs
   that each fit on one battery by a conservative, configurable energy model
   (placeholders for a 4S 5000 mAh X500-class quad, not calibrated), and the
-  drone flies each leg, lands on the dock, charges (simulated) and flies the
-  next. The Tasks panel shows every leg's prediction next to what the vehicle
+  drone flies each leg and lands on the dock, which charges it passively
+  (simulated) whenever it sits there. The Tasks panel shows every leg's prediction next to what the vehicle
   measured. See [Task queue, legs and charge stops](docs/concepts/task-queue.md).
-- **Scan, then repair**: place hidden divots on the map, fly a scan run whose
+- **Survey, then repair**: place hidden divots on the map, fly a survey whose
   simulated camera finds the ones under its footprint, then repair what it
   found with the task queue. The agent plans both ("plan a divot scan of
   hole 1", "plan the repair run"); you start each flight.
-- **Simulated drone**: Fly takes off from the dock, flies the preview, returns
-  and lands, with live telemetry (mode, battery, altitude, speed, heading, GPS)
+- **Simulated drone**: Fly survey takes off from the dock, flies the preview
+  with the camera on, returns and lands, with live telemetry (mode, battery, altitude, speed, heading, GPS)
   over a WebSocket. Abort returns to the dock.
 - **ArduPilot SITL** (optional): with `FLIGHT_BACKEND=sitl`, Fly uploads the
   route as a MAVLink mission to ArduPilot SITL (a generic ArduCopter quad)
@@ -119,14 +120,14 @@ the backend.
    track of groups.
 4. Click a few cells or shift-drag a box to show manual editing. Groups
    update and keep their numbers.
-5. Click **Preview path**, then **Fly**. Watch the simulated drone fly the
+5. Click **Preview path**, then **Fly survey**. Watch the simulated drone fly the
    route and land on the dock.
 6. Open the **Tasks** tab, click **Generate** (20 divots), then **Run queue**.
    The divots and the planned legs show on the map; the drone flies a leg,
    lands, charges and flies the next, and the divots turn green as they are
    done.
 7. Or scan first: **Scatter 10 on hole 1** (or **Place on map**), ask the agent to
-   **plan a divot scan of hole 1**, press **Scan route**, then ask it to
+   **plan a divot scan of hole 1**, press **Fly survey**, then ask it to
    **plan the repair run** and press **Run queue**.
 
 ## Fly on ArduPilot SITL

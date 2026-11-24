@@ -298,7 +298,8 @@ every one that passes under the camera footprint (with a position error,
 and no simulated misses), and the found ones become tasks for the repair queue.
 The agent can plan scans (`plan_scan`) and repairs (`plan_repair`) and read
 the results, but it cannot start a scan, a queue run or any flight: a person
-presses Scan route or Run queue. The agent sees only what the drone would
+presses Fly survey or Run queue (Fly and Scan route were merged into one
+survey flight on 2026-11-24). The agent sees only what the drone would
 know (how many it found), not the hidden positions or how many there are.
 
 **Why.** mj chose "agent plans, you press Fly/Run" when the scan tools were
@@ -316,3 +317,27 @@ model (more realistic, but needs the camera and a vision pipeline first).
 with measured detection rates), or flights need to start unattended (then
 decide who is in control and how a person can stop it).
 See [Task queue, legs and charge stops](concepts/task-queue.md#scan-then-repair).
+
+## D12. One survey flight, and passive charging on the dock
+
+**Status:** accepted (2026-11-24)
+
+**Decision.** Fly and Scan route are one button, **Fly survey**: every
+coverage flight has the camera on and finds any placed divots under it. The
+dock charges the pack passively whenever the drone sits on it landed and
+disarmed (`charger.DockCharger`); pressing Fly survey or Run queue no longer
+starts a charge. A flight waits on the dock only when the pack holds less
+than its estimate plus the landing reserve.
+
+**Why.** mj, 2026-11-24. The two buttons flew the same route and differed
+only in whether detection ran, which read as two features. A real dock
+charges whenever the drone is on it, and making every flight sit through a
+full top-up delayed short flights for nothing.
+
+**Alternatives.** Keep both buttons with clearer labels (offered, not
+chosen). Charge to full before every leg (the old behavior: simpler, but it
+waited even when the pack had plenty).
+
+**Revisit if** a real dock reports its own charge (then the charger only
+reads it), or surveys need a camera-off mode (for example to test flight
+without detection).

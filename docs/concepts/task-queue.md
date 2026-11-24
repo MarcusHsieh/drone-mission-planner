@@ -10,9 +10,12 @@ away from. Each task has a status: **pending**, **active** (the drone is on
 its way or working on it), **done**, or **failed**.
 
 When the queue needs more energy than one battery holds, the planner splits it
-into **legs**. Each leg takes off from the dock with a full pack, visits some
-tasks, and lands back on the dock with at least the reserve left. Between legs
-the drone **charges** on the dock (simulated), then flies the next leg. The
+into **legs**. Each leg is planned on a full pack, visits some tasks, and
+lands back on the dock with at least the reserve left. The dock **charges
+passively** (simulated): whenever the drone sits on it, landed and disarmed,
+the pack charges, whether or not anything is queued. A leg or a survey waits
+on the dock only if the pack holds less than its own estimate plus the
+reserve. The
 panel shows the legs with their predicted distance, time, mAh and battery on
 landing, and after each leg what the vehicle actually used.
 
@@ -56,9 +59,10 @@ The tasks can also come from a scan instead of being generated:
    random ones on hole 1's fairway (hole 1 is the test hole: the dock is at
    its tee, and its scan fits on one battery). They are the simulation's ground truth: white
    rings on the map, invisible to the planner and the agent.
-2. **Scan run**: select an area and preview its path (or ask the agent: "plan
-   a divot scan of hole 1", which calls `plan_scan`), then **Scan
-   route**. The drone flies the coverage path. Every hidden divot that passes
+2. **Survey**: select an area and preview its path (or ask the agent: "plan
+   a divot scan of hole 1", which calls `plan_scan`), then **Fly survey**.
+   There is one survey flight: the camera is always on (mj, 2026-11-24; there
+   used to be a separate camera-off Fly). The drone flies the coverage path. Every hidden divot that passes
    under the camera footprint at survey altitude is found and becomes a
    pending task at the detected position. Rings turn green when found; a ring
    still white after a scan was never under the camera.
@@ -74,7 +78,8 @@ The agent plans every step and a person starts every flight
 | --- | --- |
 | Placed divots, the simulated camera | [`backend/app/scan.py`](../../backend/app/scan.py) (`DivotField`, `footprint_m`) |
 | Agent tools | `plan_scan`, `get_tasks`, `plan_repair` in [`backend/app/agent.py`](../../backend/app/agent.py) |
-| API | `POST /api/field/divots` (add, remove, clear, scatter), `POST /api/scan`; `GET /api/queue` carries `field` |
+| API | `POST /api/field/divots` (add, remove, clear, scatter), `POST /api/fly` (the survey); `GET /api/queue` carries `field` and the dock's `charge` |
+| Passive dock charging | [`backend/app/charger.py`](../../backend/app/charger.py) (`DockCharger`, `need_pct`), tests in `test_charger.py` |
 | Headless | `uv run python -m tools.fly_queue --divots 6 --scan-holes 1` |
 | Tests | [`backend/tests/test_scan.py`](../../backend/tests/test_scan.py), `test_plan_scan_and_repair_tools` in `test_agent.py`, `test_scan_then_repair_on_sitl` in `test_sitl_queue.py` |
 
@@ -164,8 +169,11 @@ adds more. Faster charging is possible but wears the pack.
   `tasks.MAX_ATTEMPTS` tries), and what's left is planned again.
 - **A task that can't be reached on one full battery fails at once** with
   "Out of range". Nothing tries to stage it from somewhere else.
-- **Every leg starts on a full pack.** If the pack reads under 97% before a
-  leg (including the first), the queue charges first.
+- **A flight waits only if the pack is short.** Before a leg or a survey,
+  the pack must hold the flight's estimate plus the 30% reserve
+  (`charger.need_pct`). If it does, the flight goes at once; if not, it waits
+  on the dock while the passive charge catches up. Legs are planned on a full
+  pack, so a long leg usually waits for nearly full, and a short one doesn't.
 - **Battery guard on the vehicle's own reading.** During a leg, if the
   vehicle reports less than `QUEUE_GUARD_PCT`, the leg is cut short and the
   drone returns. Plans land with 30% or more, so the guard only fires when the
@@ -176,12 +184,14 @@ adds more. Faster charging is possible but wears the pack.
   times the model, it still brings the drone home, but over-draws the pack
   on the way. A distance-aware guard would compare the energy to fly home
   with what's left.
-- **Charging is simulated.** The queue waits `CHARGE_C`-rate charge time
-  divided by `CHARGE_SPEEDUP`, then calls the link's `recharge`. The built-in
-  sim resets its pack; on SITL that is `MAV_CMD_BATTERY_RESET`, which tells
-  ArduPilot's battery monitor the pack is full. On real hardware `recharge`
-  must instead wait for the dock to report a full pack (or a pack swap), and
-  never reset the battery monitor by command.
+- **Charging is simulated.** `DockCharger` runs all the time. After landing it
+  waits the handling time (`charge_handling_s`), then adds charge at the
+  `CHARGE_C` rate with the taper, `CHARGE_SPEEDUP` times faster than real
+  time, and writes each whole percent to the vehicle with the link's
+  `set_charge_pct`: the built-in sim sets its pack, and on SITL that is
+  `MAV_CMD_BATTERY_RESET` with the new percentage. On real hardware the dock
+  charges the pack and reports it; nothing may reset the battery monitor by
+  command.
 - **SITL is not the airframe, and its battery is not the model's.** SITL's
   generic quad draws more than the placeholder X500 currents (about 1.3 to
   1.4 times the prediction, margin included, in our runs), on SITL's 12000

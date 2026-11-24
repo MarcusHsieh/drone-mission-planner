@@ -34,12 +34,6 @@ const LEG_STATUS: Record<QueueLeg["status"], string> = {
 
 let map: MLMap | null = null;
 let placing = false;
-let hasRoute = () => false;
-
-/** Tell the panel whether a path is previewed (the scan flies it). */
-export function setRouteCheck(fn: () => boolean): void {
-  hasRoute = fn;
-}
 
 function setPlacing(on: boolean) {
   placing = on;
@@ -65,10 +59,6 @@ export function setupTasks(focus: (b: [number, number, number, number]) => void,
   $("#btn-place").addEventListener("click", () => setPlacing(!placing));
   $("#btn-scatter").addEventListener("click", () => act(() => api.placed({ op: "scatter", count: 10, holes: [1] })));
   $("#btn-placed-clear").addEventListener("click", () => act(() => api.placed({ op: "clear" })));
-  $("#btn-scan").addEventListener("click", () => {
-    setPlacing(false);
-    act(api.scan);
-  });
   $("#btn-queue-abort").addEventListener("click", () => act(api.queueAbort));
   $("#btn-queue-clear").addEventListener("click", () => act(api.queueClear));
   poll();
@@ -161,16 +151,49 @@ function showTask(t: QueueTask) {
     .addTo(map);
 }
 
+let lastDock = "";
 function render(s: QueueState) {
   q = s;
-  if (s.version === lastVersion) return updateButtons();
+  window.dispatchEvent(new Event("queue-state"));
+  // The dock charges on its own, without bumping the queue's version: redraw the panel for it.
+  const dock = JSON.stringify([s.charge, s.field.scanning, s.field.waiting_for_charge, s.message]);
+  if (s.version === lastVersion) {
+    if (dock !== lastDock) {
+      lastDock = dock;
+      drawPanel(s);
+    }
+    return updateButtons();
+  }
   lastVersion = s.version;
+  lastDock = dock;
   drawMap(s);
   drawPanel(s);
   updateButtons();
 }
 
+/** One divot for the 3D view: tasks by status color, placed ones white until found. */
+export interface DivotPoint {
+  lon: number;
+  lat: number;
+  color: string;
+  kind: "task" | "placed";
+}
+let divotsFn: (list: DivotPoint[]) => void = () => {};
+/** Get every divot (tasks and placed) whenever they change, for the 3D view. */
+export function onDivots(fn: (list: DivotPoint[]) => void): void {
+  divotsFn = fn;
+  if (q) fn(divotPoints(q));
+}
+
+function divotPoints(s: QueueState): DivotPoint[] {
+  return [
+    ...s.field.placed.filter((d) => !d.found_task).map((d) => ({ lon: d.lon, lat: d.lat, color: "#f8fafc", kind: "placed" as const })),
+    ...s.tasks.map((t) => ({ lon: t.lon, lat: t.lat, color: STATUS_COLOR[t.status], kind: "task" as const })),
+  ];
+}
+
 function drawMap(s: QueueState) {
+  divotsFn(divotPoints(s));
   if (!map?.getSource("divots")) return;
   (map.getSource("divots") as GeoJSONSource).setData({
     type: "FeatureCollection",
@@ -205,7 +228,7 @@ function drawPanel(s: QueueState) {
   const phase = s.running ? s.phase : n ? s.phase : "idle";
   $("#queue-status").innerHTML = `
     <div class="drone-status"><span class="mode queue-${phase}">${phase.toUpperCase()}</span> ${esc(s.message)}</div>
-    ${s.charge ? `<div class="progress" title="Simulated charge"><div style="width:${s.charge.pct}%;background:#16a34a"></div><span>Charging ${s.charge.pct.toFixed(0)}% · ${fmtMin(s.charge.left_s)} left (real time)</span></div>` : ""}
+    ${dockLine(s.charge)}
     ${n ? `<div class="task-counts">${(["pending", "active", "done", "failed"] as TaskStatus[]).map((k) => `<span class="task-status ${k}">${c[k]} ${k}</span>`).join("")}</div>` : ""}
     ${s.remaining.legs ? `<div class="muted small">Left to fly: ${s.remaining.legs} leg${s.remaining.legs === 1 ? "" : "s"}, ${s.remaining.charge_stops} charge stop${s.remaining.charge_stops === 1 ? "" : "s"}, about ${fmtMin(s.remaining.time_s)} including charging, ${fmtInt(s.remaining.mah)} mAh.</div>` : ""}`;
 
@@ -239,10 +262,10 @@ function drawPanel(s: QueueState) {
   const f = s.field;
   const ls = f.last_scan;
   $("#field-status").innerHTML = f.scanning
-    ? `<b>Scanning…</b> ${f.found} found so far.`
+    ? f.waiting_for_charge ? `<b>Survey waiting for charge…</b>` : `<b>Surveying…</b> ${f.found} found so far.`
     : f.placed.length || f.scans
-      ? `${f.placed.length} placed (hidden from the planner, white rings) · ${f.found} found by scans${ls ? `. Last scan: ${ls.found} found, ${ls.not_covered} never under the camera.` : "."}${f.mean_error_m != null ? ` Found positions are ${f.mean_error_m} m off on average.` : ""}`
-      : `Place divots on the map, preview a path over them (or ask the agent to plan a scan), then Scan route. The camera sees a ${f.camera.footprint_m} m strip and finds every divot that passes under it.`;
+      ? `${f.placed.length} placed (hidden from the planner, white rings) · ${f.found} found by surveys${ls ? `. Last survey: ${ls.found} found, ${ls.not_covered} never under the camera.` : "."}${f.mean_error_m != null ? ` Found positions are ${f.mean_error_m} m off on average.` : ""}`
+      : `Place divots on the map, preview a path over them (or ask the agent to plan a scan), then Fly survey. The camera sees a ${f.camera.footprint_m} m strip and finds every divot that passes under it.`;
   const e = s.energy;
   $("#queue-model").innerHTML = `<b>Energy model${e.calibrated ? "" : " (uncalibrated placeholders)"}:</b> ${e.cells}S ${fmtInt(e.pack_mah)} mAh, land with ≥ ${e.reserve_pct}% left
     (${fmtInt(e.usable_mah)} mAh per leg), ${e.hover_a} A hover, ${e.cruise_a} A cruise, ×${e.margin} margin: about ${e.hover_minutes_to_reserve} min of hover per leg.
@@ -269,6 +292,15 @@ function legRow(l: QueueLeg): string {
   </tr>`;
 }
 
+/** The dock charges on its own whenever the drone sits on it. */
+function dockLine(ch: QueueState["charge"]): string {
+  if (!ch || ch.pct == null || ch.state === "idle") return "";
+  const label = ch.state === "full" ? "On the dock, full"
+    : ch.state === "settling" ? `On the dock at ${ch.pct.toFixed(0)}%, charging starts in a moment`
+    : `Charging on the dock ${ch.pct.toFixed(0)}%${ch.left_s != null ? ` · ${fmtMin(ch.left_s)} to full (real time)` : ""}`;
+  return `<div class="progress" title="Simulated: the dock charges whenever the drone sits on it"><div style="width:${ch.pct}%;background:#16a34a"></div><span>${label}</span></div>`;
+}
+
 function updateButtons() {
   const running = !!q?.running;
   const pending = (q?.counts.pending ?? 0) > 0;
@@ -277,13 +309,14 @@ function updateButtons() {
   $<HTMLButtonElement>("#btn-queue-clear").disabled = running || !q?.tasks.length;
   const scanning = !!q?.field.scanning;
   $<HTMLButtonElement>("#btn-divots").disabled = running || scanning;
-  $<HTMLButtonElement>("#btn-scan").disabled = running || scanning || !hasRoute();
   $<HTMLButtonElement>("#btn-scatter").disabled = scanning;
   $<HTMLButtonElement>("#btn-placed-clear").disabled = scanning || !q?.field.placed.length;
   if (scanning) $<HTMLButtonElement>("#btn-queue-run").disabled = true;
 }
 
 export const queueRunning = () => !!q?.running || !!q?.field.scanning;
+/** A survey is waiting on the dock for charge (abortable before takeoff). */
+export const surveyWaiting = () => !!q?.field.waiting_for_charge;
 export const refreshTaskButtons = () => updateButtons();
 
 function boundsOf(pts: [number, number][]): [number, number, number, number] {

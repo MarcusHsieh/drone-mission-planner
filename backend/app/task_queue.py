@@ -22,11 +22,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import time
 from typing import Any
 
 from . import vitals
 from .charge_plan import LegPlan, QueuePlan, plan_queue
+from .charger import DockCharger, need_pct
 from .course import Course
 from .energy import EnergyModel
 from .tasks import MAX_ATTEMPTS, Task, generate_divots
@@ -37,22 +37,21 @@ log = logging.getLogger(__name__)
 SERVICE_ALT_M = float(os.getenv("DIVOT_SERVICE_ALT_M", "4"))
 SERVICE_S = float(os.getenv("DIVOT_SERVICE_S", "15"))
 GUARD_PCT = float(os.getenv("QUEUE_GUARD_PCT", "20"))
-TOPUP_BELOW_PCT = 97.0  # charge before a leg if the pack reads less than this
 POLL_S = 0.2
 
 
 class TaskQueue:
-    def __init__(self, course: Course, link: VehicleLink, model: EnergyModel | None = None) -> None:
+    def __init__(self, course: Course, link: VehicleLink, model: EnergyModel | None = None, charger: DockCharger | None = None) -> None:
         self.course = course
         self.link = link
         self.model = model or EnergyModel.from_env()
+        self.charger = charger or DockCharger(link, self.model)
         self.service_alt_m = SERVICE_ALT_M
         self.tasks: dict[str, Task] = {}
         self.plan: QueuePlan | None = None
         self.flown: list[LegPlan] = []
         self.phase = "idle"  # idle, flying, charging, done, aborted, failed
         self.message = "No tasks. Generate divots to fill the queue."
-        self.charge: dict[str, float] | None = None
         self.abort_requested = False
         self.version = 0
         self._runner: asyncio.Task | None = None
@@ -100,7 +99,7 @@ class TaskQueue:
         if self.running:
             raise RuntimeError("The queue is running. Abort it first.")
         self.tasks, self.flown, self.plan, self._next_id = {}, [], None, 1
-        self.phase, self.charge = "idle", None
+        self.phase = "idle"
         self.message = "No tasks. Generate divots to fill the queue."
         self._changed()
 
@@ -156,8 +155,8 @@ class TaskQueue:
                 leg = next((x for x in self.plan.legs if x.status == "planned"), None)
                 if leg is None:
                     break
-                # Every leg is planned for a full pack: charge first if it isn't full.
-                await self._top_up(f"before leg {leg.index}")
+                # The dock charges passively; wait only if the pack is short of this leg plus the reserve.
+                await self.wait_for_charge(leg.est.mah, f"leg {leg.index}")
                 if self.abort_requested:
                     self.phase = "aborted"
                     self.message = "Aborted while charging. Remaining tasks are pending."
@@ -186,7 +185,6 @@ class TaskQueue:
             self.message = f"Queue stopped: {e}"
             self._log(self.message, vitals.ERROR)
         finally:
-            self.charge = None
             for t in self.tasks.values():
                 if t.status == "active":
                     t.status = "pending"
@@ -201,7 +199,8 @@ class TaskQueue:
         self.phase = "flying"
         self.message = f"Leg {leg.index}: {len(leg.task_ids)} tasks, predicted {round(leg.est.mah)} mAh ({round(leg.est.time_s / 60, 1)} min)"
         self._log(self.message)
-        self.link.start_leg(mission)
+        async with self.charger.launching():
+            self.link.start_leg(mission)
         guard_fired = False
         p = LegProgress()
         while True:
@@ -267,37 +266,22 @@ class TaskQueue:
         if changed:
             self._changed()
 
-    async def _top_up(self, when: str) -> None:
-        """Charge on the dock until the pack is full (simulated: a wait, then link.recharge)."""
-        tel = self.link.telemetry()
-        pct = tel.get("battery_pct")
-        if pct is None or pct >= TOPUP_BELOW_PCT:
-            return
-        # By percentage, so the time is for the model's pack even when the
-        # vehicle's own pack differs (SITL's is a placeholder).
-        used = self.model.pack_mah * (100 - pct) / 100
-        real_s = self.model.charge_time_s(used)
-        wall_s = real_s / max(self.model.charge_speedup, 1e-6)
-        self.phase = "charging"
-        self.charge = {"real_s": round(real_s), "wall_s": round(wall_s, 1), "left_s": round(real_s), "pct": 0.0}
-        self._log(f"Charging on the dock {when}: {round(used)} mAh back in about {round(real_s / 60)} min (simulated {self.model.charge_speedup:g}x faster)")
-        t0 = time.monotonic()
-        while (el := time.monotonic() - t0) < wall_s:
-            if self.abort_requested:
-                return
-            frac = el / wall_s
-            self.charge.update(left_s=round(real_s * (1 - frac)), pct=round(100 * frac, 1))
-            self.message = f"Charging on the dock {when}, {self.charge['pct']:.0f}% ({round(self.charge['left_s'] / 60)} min left, simulated)"
+    async def wait_for_charge(self, flight_mah: float, what: str, should_stop=None) -> bool:
+        """Wait on the dock until the pack holds enough for a flight of flight_mah
+        plus the landing reserve. The dock charges passively (charger.py); this
+        only waits. Returns False if aborted while waiting."""
+        need = need_pct(self.model, flight_mah)
+
+        def waiting(msg: str) -> None:
+            if self.phase != "charging" or msg != self.message:
+                self.phase, self.message = "charging", msg
+                self._changed()
+
+        ok = await self.charger.wait_for(need, what, waiting, should_stop or (lambda: self.abort_requested))
+        if self.phase == "charging":
+            self.phase = "flying"
             self._changed()
-            await asyncio.sleep(POLL_S)
-        await asyncio.to_thread(self.link.recharge)
-        # Give the vehicle a moment to report the full pack before the next check.
-        for _ in range(25):
-            if (self.link.telemetry().get("battery_pct") or 0) >= TOPUP_BELOW_PCT:
-                break
-            await asyncio.sleep(POLL_S)
-        self.charge = None
-        self._changed()
+        return ok
 
     # -- reading ---------------------------------------------------------------------
     def snapshot(self) -> dict[str, Any]:
@@ -322,7 +306,7 @@ class TaskQueue:
                 "time_s": round(sum(leg.est.time_s + leg.charge_after_s for leg in remaining)),
                 "mah": round(sum(leg.est.mah for leg in remaining)),
             },
-            "charge": self.charge,
+            "charge": self.charger.snapshot(),
             "energy": self.model.describe(),
             "service": {"alt_m": self.service_alt_m, "guard_pct": GUARD_PCT},
         }

@@ -196,10 +196,15 @@ class DroneSim:
         self.abort_requested = True
 
     def recharge(self) -> None:
-        self.consumed_mah = 0.0
+        self.set_charge_pct(100.0)
         self.msglog.add("Battery recharged on the dock (simulated)", vitals.INFO, "planner")
-        if not self.flying:
-            self.message = "On dock, charged"
+
+    def set_charge_pct(self, pct: float) -> None:
+        """The dock charger's simulated charge (charger.DockCharger)."""
+        if self.flying:
+            return
+        self.consumed_mah = self.energy.pack_mah * (1 - min(max(pct, 0.0), 100.0) / 100)
+        self.message = "On dock, charged" if pct >= 100 else f"On dock, charging {pct:.0f}%"
 
     async def _step(self, dt_sim: float, current: float) -> None:
         self.sim_elapsed += dt_sim

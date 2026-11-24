@@ -9,6 +9,7 @@ progress on it, go home, and recharge:
     link.leg_progress()          LegProgress: which task is active, which are done
     link.return_to_dock()        cut the leg short and come home (RTL)
     link.recharge()              after landing: the pack is full again
+    link.set_charge_pct(pct)     the dock charger's simulated charge level (charger.py)
     link.telemetry()             the dashboard's telemetry dict (battery, mode, ...)
 
 Two links implement it today:
@@ -92,5 +93,7 @@ class VehicleLink(Protocol):
     def return_to_dock(self) -> None: ...
 
     def recharge(self) -> None: ...
+
+    def set_charge_pct(self, pct: float) -> None: ...
 
     def telemetry(self) -> dict: ...

@@ -111,6 +111,14 @@ export class Photoreal {
     this.tiles.update();
   }
 
+  /** Height of the mesh (ground, roof or tree top) at x, y in the dock frame, or null where nothing has loaded. */
+  groundAt(x: number, y: number): number | null {
+    if (this.status !== "ready") return null;
+    this.raycaster.set(new THREE.Vector3(x, y, 300), new THREE.Vector3(0, 0, -1));
+    const hit = this.raycaster.intersectObject(this.group, true)[0];
+    return hit && Math.abs(hit.point.z) < 80 ? hit.point.z : null;
+  }
+
   /** Attribution text Google requires for the tiles on screen. */
   attribution(): string {
     const out: { type: string; value: string }[] = [];
